@@ -234,7 +234,7 @@ sorting correctness.
 - Write JSON atomically through a sibling temporary file and rename.
 - On malformed or unsupported JSON, report the problem and do not overwrite the
   file.
-- Append `/.cache/vrv/annotations.json` to `.gitignore` once.
+- Leave `.gitignore` untouched; users decide whether to ignore the store path.
 - Assume one Neovim instance per repository; add no locks or merge logic.
 - Support live-buffer snippet capture at file boundaries and for multiline
   visual ranges.
@@ -248,7 +248,7 @@ sorting correctness.
 - Add/update/delete preserve unrelated annotations and branches.
 - Atomic save leaves the previous file intact when encoding or writing fails.
 - Malformed and unsupported stores are not replaced.
-- `.gitignore` update is idempotent.
+- Saving never creates or modifies `.gitignore`.
 - Context capture handles first line, last line, short files, unsaved changes,
   and visual ranges.
 - Git tests use temporary repositories for normal, unborn, and detached branch
@@ -443,8 +443,9 @@ Validate the completed initial feature set as both a checkout and a flake input.
 - Re-run the downstream flake consumer with the completed plugin.
 - Exercise the complete workflow manually in a temporary Git repository with at
   least two branches and two source files.
-- Confirm `.gitignore` behavior, JSON contents, signs, branch isolation,
-  Telescope deletion, normal-buffer editing, and exact clipboard output.
+- Confirm `.gitignore` remains untouched, along with JSON contents, signs,
+  branch isolation, Telescope deletion, normal-buffer editing, and exact
+  clipboard output.
 - Remove unused dependencies and any framework code not required by
   [FEATURES.md](FEATURES.md).
 - Add only the minimal installation example needed by the personal Neovim flake;

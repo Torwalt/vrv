@@ -13,24 +13,6 @@ local function store_path(root)
     return util.path_join(root, ".cache", "vrv", "annotations.json")
 end
 
-local function gitignore_path(root)
-    return util.path_join(root, ".gitignore")
-end
-
-local function ensure_gitignore(root)
-    local path = gitignore_path(root)
-    local content = util.read_file(path) or ""
-    local pattern = "/.cache/vrv/annotations.json"
-    for line in content:gmatch("[^\r\n]+") do
-        if vim.trim(line) == pattern then
-            return true
-        end
-    end
-
-    local prefix = content == "" and "" or (content:sub(-1) == "\n" and "" or "\n")
-    return util.write_file_atomic(path, content .. prefix .. "# vrv annotation store\n" .. pattern .. "\n")
-end
-
 function M.path(root)
     return store_path(root or state.root)
 end
@@ -93,10 +75,6 @@ function M.save()
         return false, write_err
     end
 
-    local ignored, ignore_err = ensure_gitignore(state.root)
-    if not ignored then
-        vim.notify("vrv: could not update .gitignore: " .. tostring(ignore_err), vim.log.levels.WARN)
-    end
     return true
 end
 

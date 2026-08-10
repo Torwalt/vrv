@@ -127,13 +127,17 @@ T.test("Git helpers support roots, unborn branches, slash names, and detached HE
     T.truthy(branch_error ~= nil)
 end)
 
-T.test("store persists branches atomically and updates gitignore once", function()
+T.test("store persists branches atomically and leaves gitignore untouched", function()
     reset_runtime()
     local root = T.repo()
     T.truthy(store.load(root))
     T.eq({}, store.all())
 
     local main = T.truthy(store.add(T.annotation({ id = nil })))
+    T.eq(nil, vim.uv.fs_stat(root .. "/.gitignore"))
+
+    local gitignore = "# Managed by the user\n/custom-cache/\n"
+    T.write(root .. "/.gitignore", gitignore)
     local other = T.truthy(store.add(T.annotation({
         id = "other-branch",
         branch = "feature/other",
@@ -172,9 +176,7 @@ T.test("store persists branches atomically and updates gitignore once", function
     T.eq(nil, store.get(other.id))
     T.truthy(store.save())
 
-    local ignored = T.read(root .. "/.gitignore")
-    local _, count = ignored:gsub("/.cache/vrv/annotations%.json", "")
-    T.eq(1, count)
+    T.eq(gitignore, T.read(root .. "/.gitignore"))
 
     local encoded = T.read(store.path(root))
     T.falsy(encoded:find("_bufnr", 1, true))

@@ -19,7 +19,7 @@ framework. The plugin is intentionally built around one workflow.
 - Captures three numbered context lines above and below the selected range,
   including unsaved source-buffer changes.
 - Stores annotations for every branch in
-  `.cache/vrv/annotations.json` and automatically adds that path to `.gitignore`.
+  `.cache/vrv/annotations.json`.
 - Shows annotation signs in source buffers and follows in-session line movement
   with extmarks.
 - Searches the current branch's annotations through Telescope.
@@ -170,6 +170,9 @@ JSON is the source of truth:
 The file contains annotations for all branches and is rewritten atomically after
 successful changes. Markdown exports are transformations of this JSON and are
 never read back as state.
+
+`vrv.nvim` does not modify `.gitignore`. Add the store path there yourself if
+you do not want Git to track it.
 
 Malformed or unsupported JSON is preserved and the store becomes read-only.
 Fix the file and run `:Vrv reload` rather than losing annotations to an automatic

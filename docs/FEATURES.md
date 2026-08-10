@@ -191,8 +191,7 @@ JSON is the only durable representation. Markdown is never read back as state.
   crash cannot leave partially written JSON.
 - Detect malformed or unsupported stores and preserve the original file rather
   than overwriting it with an empty store.
-- Add the fixed store path to the project's `.gitignore` once, without a
-  recurring configuration prompt.
+- Leave `.gitignore` untouched; users decide whether to ignore the store path.
 
 The implementation assumes only one Neovim instance manages a repository at a
 time. It does not need file locking, external-change detection, merging, or
@@ -353,6 +352,6 @@ These choices are fixed for the initial implementation.
 | Context size | Keep three lines above and below the selected range |
 | Telescope deletion confirmation | No prompt; `<C-d>` is immediate and refreshes the picker |
 | Markdown destination | System clipboard through the `+` register |
-| Store path | `.cache/vrv/annotations.json`, automatically gitignored |
+| Store path | `.cache/vrv/annotations.json`; `.gitignore` remains user-managed |
 | Unsaved source buffers | Capture the live buffer text and line positions, then persist that snapshot in JSON |
 | Plugin/command name | Use `vrv` / `:Vrv` |
