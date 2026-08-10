@@ -19,6 +19,20 @@ The primary `<leader>ra` → annotate → `:wq` → `<leader>rE` workflow is com
 after milestone 4. Telescope and secondary navigation follow once that vertical
 slice works.
 
+## Progress
+
+- [x] Milestone 1 — Flake, dev shell, packaging, and smoke test (2026-08-10).
+- [ ] Milestone 2 — Core model, Git scope, and JSON store.
+- [ ] Milestone 3 — Annotation editor, commands, mappings, and signs.
+- [ ] Milestone 4 — Minimal Markdown export.
+- [ ] Milestone 5 — Telescope browser.
+- [ ] Milestone 6 — Navigation, reload, and branch lifecycle.
+- [ ] Milestone 7 — Final integration and downstream verification.
+
+Milestone 1 passed the package build, local and all-supported-system evaluation,
+packaged and live-worktree smoke tests, overlay-based downstream test, formatting
+and lint checks, `nix develop`, direnv activation, and Telescope health check.
+
 ## Non-negotiable implementation boundaries
 
 - Implement only [FEATURES.md](FEATURES.md), not feature parity with the old
@@ -64,9 +78,10 @@ milestone.
 - Pin a Neovim/Telescope/Plenary combination that satisfies Telescope's current
   requirements. At plan time, Telescope documents Neovim 0.11.7+ and Plenary as
   required.
-- Support the common Linux and Darwin systems through `nixpkgs.lib.genAttrs` or
-  an equivalently small mechanism. Avoid adding a flake framework solely to
-  generate systems.
+- Support `x86_64-linux`, `aarch64-linux`, and `aarch64-darwin` through
+  `nixpkgs.lib.genAttrs` or an equivalently small mechanism. The pinned nixpkgs
+  no longer supports `x86_64-darwin`; avoid a legacy input solely for that
+  platform and avoid adding a flake framework solely to generate systems.
 
 ### Flake outputs
 
