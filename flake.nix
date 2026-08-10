@@ -31,6 +31,7 @@
             telescope-nvim
             plenary-nvim
           ];
+          runtimeDeps = [ pkgs.git ];
           meta = {
             description = "Branch-scoped code review annotations for Neovim";
             platforms = pkgs.lib.platforms.all;
@@ -171,11 +172,20 @@
             touch "$out"
           '';
 
-          tests = pkgs.runCommand "vrv-tests" { nativeBuildInputs = [ devNeovim ]; } ''
-            ${mkWritableHome}
-            nvim --headless -u ${self}/tests/minimal_init.lua -i NONE -l ${self}/tests/smoke.lua
-            touch "$out"
-          '';
+          tests =
+            pkgs.runCommand "vrv-tests"
+              {
+                nativeBuildInputs = [
+                  devNeovim
+                  pkgs.git
+                ];
+              }
+              ''
+                ${mkWritableHome}
+                nvim --headless -u ${self}/tests/minimal_init.lua -i NONE -l ${self}/tests/smoke.lua
+                nvim --headless -u ${self}/tests/minimal_init.lua -i NONE -l ${self}/tests/run.lua
+                touch "$out"
+              '';
 
           format =
             pkgs.runCommand "vrv-format"

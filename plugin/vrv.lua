@@ -8,3 +8,5 @@ if vim.fn.has("nvim-0.11.7") == 0 then
 end
 
 vim.g.loaded_vrv = 1
+
+require("vrv").setup()

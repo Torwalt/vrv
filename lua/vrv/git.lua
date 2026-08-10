@@ -1,0 +1,57 @@
+local M = {}
+
+local function run(args, cwd)
+    if vim.fn.executable("git") == 0 then
+        return nil, "git executable not found"
+    end
+    local command = { "git" }
+    if cwd and cwd ~= "" then
+        vim.list_extend(command, { "-C", cwd })
+    end
+    vim.list_extend(command, args)
+
+    local result = vim.system(command, { text = true }):wait()
+    if result.code ~= 0 then
+        return nil, vim.trim(result.stderr or "git command failed")
+    end
+    return vim.trim(result.stdout or "")
+end
+
+function M.root(path)
+    local directory = path
+    if not directory or directory == "" then
+        local buffer_name = vim.api.nvim_buf_get_name(0)
+        directory = buffer_name ~= "" and vim.fn.fnamemodify(buffer_name, ":p:h") or vim.fn.getcwd()
+    elseif vim.fn.isdirectory(directory) == 0 then
+        directory = vim.fn.fnamemodify(directory, ":p:h")
+    end
+
+    local root = run({ "rev-parse", "--show-toplevel" }, directory)
+    return root and vim.fs.normalize(root) or vim.fs.normalize(vim.fn.getcwd())
+end
+
+function M.branch(root)
+    local branch, err = run({ "symbolic-ref", "--quiet", "--short", "HEAD" }, root)
+    if not branch or branch == "" then
+        return nil, err and err ~= "" and err or "detached HEAD is not supported"
+    end
+    return branch
+end
+
+function M.relative_file(root, bufnr)
+    bufnr = bufnr or 0
+    local absolute = vim.api.nvim_buf_get_name(bufnr)
+    if absolute == "" then
+        return nil, "current buffer has no file"
+    end
+
+    absolute = vim.fs.normalize(absolute)
+    root = vim.fs.normalize(root)
+    local relative = vim.fs.relpath(root, absolute)
+    if not relative or relative == "" or relative:match("^%.%./") or relative == ".." then
+        return nil, "current file is outside the project root"
+    end
+    return relative
+end
+
+return M

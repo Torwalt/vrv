@@ -22,16 +22,22 @@ slice works.
 ## Progress
 
 - [x] Milestone 1 — Flake, dev shell, packaging, and smoke test (2026-08-10).
-- [ ] Milestone 2 — Core model, Git scope, and JSON store.
-- [ ] Milestone 3 — Annotation editor, commands, mappings, and signs.
-- [ ] Milestone 4 — Minimal Markdown export.
-- [ ] Milestone 5 — Telescope browser.
-- [ ] Milestone 6 — Navigation, reload, and branch lifecycle.
-- [ ] Milestone 7 — Final integration and downstream verification.
+- [x] Milestone 2 — Core model, Git scope, and JSON store (2026-08-10).
+- [x] Milestone 3 — Annotation editor, commands, mappings, and signs (2026-08-10).
+- [x] Milestone 4 — Minimal Markdown export (2026-08-10).
+- [x] Milestone 5 — Telescope browser (2026-08-10).
+- [x] Milestone 6 — Navigation, reload, and branch lifecycle (2026-08-10).
+- [x] Milestone 7 — Final integration and downstream verification (2026-08-10).
 
 Milestone 1 passed the package build, local and all-supported-system evaluation,
 packaged and live-worktree smoke tests, overlay-based downstream test, formatting
 and lint checks, `nix develop`, direnv activation, and Telescope health check.
+
+Milestones 2–7 passed the complete headless behavior suite, exact Markdown
+snapshot, Lua/Nix formatting and linting, package build, and overlay-based
+downstream check. A PTY-backed Neovim acceptance pass also completed the real
+`<leader>ra` → `:wq` → `<leader>rf` → `<C-d>` workflow and confirmed that the
+picker stayed open after deleting the selected annotation.
 
 ## Non-negotiable implementation boundaries
 
