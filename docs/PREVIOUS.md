@@ -1,8 +1,8 @@
-# Goal Functionality
+# Previous Functionality
 
 ## Purpose
 
-This document inventories the user-facing behavior of
+This document inventories the previous user-facing behavior of
 [`retran/meow.review.nvim`](https://github.com/retran/meow.review.nvim) as the
 baseline for our rewrite. It is a capability inventory, not yet the final product
 specification: each item can later be kept, changed, or deliberately removed.
