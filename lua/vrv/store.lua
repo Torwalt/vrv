@@ -193,6 +193,32 @@ function M.delete(id)
     return false, "annotation not found: " .. tostring(id)
 end
 
+function M.delete_branch(branch)
+    local previous = state.annotations
+    local kept = {}
+    local deleted = {}
+
+    for _, annotation in ipairs(previous) do
+        if annotation.branch == branch then
+            deleted[#deleted + 1] = annotation
+        else
+            kept[#kept + 1] = annotation
+        end
+    end
+
+    if #deleted == 0 then
+        return true, deleted
+    end
+
+    state.annotations = kept
+    local ok, err = M.save()
+    if not ok then
+        state.annotations = previous
+        return false, err
+    end
+    return true, deleted
+end
+
 function M._reset()
     state = { root = nil, annotations = {}, writable = true }
 end

@@ -28,5 +28,8 @@ your Neovim plugins. Telescope and Plenary are propagated by the package.
 ```
 
 The plugin initializes when Neovim loads it. Git must be available at runtime.
-For development, run `direnv allow` once or enter `nix develop`; `vrv-nvim`
-launches Neovim with the checkout and its dependencies on the runtime path.
+For development, run `direnv allow` once or enter `nix develop`, then run
+`vrv-nvim .`. The launcher prefers the Neovim wrapper in your user profile so
+your normal configuration and plugins load, while prepending this checkout to
+the runtime path. Set `VRV_USER_NVIM=/path/to/nvim` to select another wrapper.
+If no user wrapper is found, it falls back to the pinned development Neovim.

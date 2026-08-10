@@ -156,8 +156,8 @@ The browser must:
 - `<C-e>`: open the selected annotation in the normal edit buffer.
 - Exit normally with Telescope's standard close mappings.
 
-Deletion affects only the selected annotation. Bulk deletion and resolved-state
-workflows are out of scope.
+Deletion inside Telescope affects only the selected annotation. Bulk picker
+actions and resolved-state workflows are out of scope.
 
 ## 6. Direct management and navigation
 
@@ -165,6 +165,8 @@ The useful parts of the existing interaction model remain available:
 
 - Edit the annotation under the cursor in the normal annotation buffer.
 - Delete the annotation under the cursor.
+- Clear every annotation on the current branch with one command, without
+  affecting annotations stored for other branches.
 - If multiple ranges overlap the cursor, use the Telescope browser filtered to
   those annotations to disambiguate.
 - Jump to the next or previous annotation on the current branch, wrapping across
@@ -276,6 +278,7 @@ The initial fixed mappings are:
 | `<leader>rd` | Normal | Delete annotation under cursor |
 | `<leader>re` | Normal | Edit annotation under cursor |
 | `<leader>rf` | Normal | Open current-branch Telescope browser |
+| `<leader>rC` | Normal | Clear all annotations on the current branch |
 | `<leader>rE` | Normal | Export current branch as Markdown to clipboard |
 | `]r` | Normal | Jump to next current-branch annotation |
 | `[r` | Normal | Jump to previous current-branch annotation |
@@ -286,6 +289,7 @@ Equivalent commands should exist for scripting and discoverability:
 - `:Vrv delete`
 - `:Vrv edit`
 - `:Vrv browse`
+- `:Vrv clear`
 - `:Vrv export`
 - `:Vrv next`
 - `:Vrv prev`
@@ -328,7 +332,7 @@ The initial rewrite does not include:
 - Custom exporter or formatter registries.
 - Avante or CodeCompanion exporters.
 - Resolved/unresolved annotation state.
-- Resolve-all, clear-all, export-and-clear, or export-current-file workflows.
+- Resolve-all, export-and-clear, or export-current-file workflows.
 - File-prompt export or configurable export filenames.
 - Statusline integration.
 - Stale validation, source fingerprints, or automatic re-anchoring.

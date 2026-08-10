@@ -153,6 +153,28 @@ function M.delete()
     end
 end
 
+function M.clear()
+    local context = action_context()
+    if not context then
+        return
+    end
+
+    local ok, deleted = require("vrv.store").delete_branch(context.branch)
+    if not ok then
+        notify_error(deleted)
+        return
+    end
+    if #deleted == 0 then
+        vim.notify("vrv: no annotations on the current branch", vim.log.levels.INFO)
+        return
+    end
+
+    for _, annotation in ipairs(deleted) do
+        require("vrv.signs").remove(annotation)
+    end
+    vim.notify("vrv: cleared all annotations on " .. context.branch, vim.log.levels.INFO)
+end
+
 function M.export()
     local context = action_context()
     if not context then
@@ -276,6 +298,7 @@ local subcommands = {
     delete = M.delete,
     edit = M.edit,
     browse = M.browse,
+    clear = M.clear,
     export = M.export,
     next = M.next,
     prev = M.previous,
@@ -286,7 +309,7 @@ local function register_interface()
     vim.api.nvim_create_user_command("Vrv", function(opts)
         local action = subcommands[opts.fargs[1]]
         if not action then
-            notify_error("usage: :Vrv <add|delete|edit|browse|export|next|prev|reload>")
+            notify_error("usage: :Vrv <add|delete|edit|browse|clear|export|next|prev|reload>")
             return
         end
         action(opts)
@@ -309,6 +332,7 @@ local function register_interface()
     vim.keymap.set("n", "<leader>rd", M.delete, { desc = "Delete review annotation" })
     vim.keymap.set("n", "<leader>re", M.edit, { desc = "Edit review annotation" })
     vim.keymap.set("n", "<leader>rf", M.browse, { desc = "Find review annotations" })
+    vim.keymap.set("n", "<leader>rC", M.clear, { desc = "Clear current-branch review annotations" })
     vim.keymap.set("n", "<leader>rE", M.export, { desc = "Export review annotations" })
     vim.keymap.set("n", "]r", M.next, { desc = "Next review annotation" })
     vim.keymap.set("n", "[r", M.previous, { desc = "Previous review annotation" })

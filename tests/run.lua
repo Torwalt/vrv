@@ -211,6 +211,65 @@ T.test("malformed stores become read-only and are never overwritten", function()
     T.eq('{"version":99,"annotations":[]}', T.read(path))
 end)
 
+T.test("clear removes only the current branch and clears its signs", function()
+    reset_runtime()
+    local root = T.repo()
+    local source = root .. "/review.lua"
+    T.write(source, "one\ntwo\nthree\n")
+    vim.cmd("edit " .. vim.fn.fnameescape(source))
+
+    T.truthy(store.load(root))
+    T.truthy(store.add(T.annotation({
+        id = "main-one",
+        file = "review.lua",
+        start_line = 1,
+        end_line = 1,
+    })))
+    T.truthy(store.add(T.annotation({
+        id = "main-two",
+        file = "review.lua",
+        start_line = 2,
+        end_line = 2,
+    })))
+    T.truthy(store.add(T.annotation({
+        id = "other",
+        branch = "other",
+        file = "review.lua",
+        start_line = 3,
+        end_line = 3,
+    })))
+    vrv.refresh()
+    T.eq(2, #vim.api.nvim_buf_get_extmarks(0, signs.namespace, 0, -1, {}))
+
+    vim.cmd("Vrv clear")
+    T.eq(0, #store.for_branch("main"))
+    T.eq(
+        { "other" },
+        vim.tbl_map(function(annotation)
+            return annotation.id
+        end, store.for_branch("other"))
+    )
+    T.eq({}, vim.api.nvim_buf_get_extmarks(0, signs.namespace, 0, -1, {}))
+
+    store._reset()
+    T.truthy(store.load(root))
+    T.eq(
+        { "other" },
+        vim.tbl_map(function(annotation)
+            return annotation.id
+        end, store.all())
+    )
+
+    vim.cmd("Vrv clear")
+    T.eq(
+        { "other" },
+        vim.tbl_map(function(annotation)
+            return annotation.id
+        end, store.all()),
+        "clearing an empty branch must not affect another branch"
+    )
+end)
+
 T.test("Markdown export is exact, deterministic, minimal, and clipboard-safe when empty", function()
     local second = T.annotation({
         id = "z",
@@ -474,7 +533,7 @@ end)
 T.test("commands, mappings, setup, and Telescope UI wiring are idempotent", function()
     reset_runtime()
     T.eq(2, vim.fn.exists(":Vrv"))
-    for _, mapping in ipairs({ " ra", " rd", " re", " rf", " rE", "]r", "[r" }) do
+    for _, mapping in ipairs({ " ra", " rd", " re", " rf", " rC", " rE", "]r", "[r" }) do
         T.truthy(vim.fn.maparg(mapping, "n") ~= "", "missing mapping " .. mapping)
     end
     T.truthy(vim.fn.maparg(" ra", "x") ~= "")

@@ -79,7 +79,28 @@
               export VRV_DEV_ROOT="$PWD"
             fi
 
-            exec nvim --cmd 'lua vim.opt.runtimepath:prepend(vim.env.VRV_DEV_ROOT)' "$@"
+            vrv_user_nvim="''${VRV_USER_NVIM:-}"
+            if [ -z "$vrv_user_nvim" ]; then
+              for vrv_candidate in \
+                "$HOME/.nix-profile/bin/nvim" \
+                "/etc/profiles/per-user/''${USER:-}/bin/nvim" \
+                "/run/current-system/sw/bin/nvim"
+              do
+                if [ -x "$vrv_candidate" ] && [ "$(readlink -f "$vrv_candidate")" != "$(readlink -f "${devNeovim}/bin/nvim")" ]; then
+                  vrv_user_nvim="$vrv_candidate"
+                  break
+                fi
+              done
+            fi
+
+            if [ -z "$vrv_user_nvim" ]; then
+              vrv_user_nvim="${devNeovim}/bin/nvim"
+            elif [ ! -x "$vrv_user_nvim" ]; then
+              echo "vrv-nvim: VRV_USER_NVIM is not executable: $vrv_user_nvim" >&2
+              exit 1
+            fi
+
+            exec "$vrv_user_nvim" --cmd 'lua vim.opt.runtimepath:prepend(vim.env.VRV_DEV_ROOT)' "$@"
           '';
         };
 
