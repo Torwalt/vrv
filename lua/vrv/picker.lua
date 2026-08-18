@@ -1,14 +1,39 @@
 local M = {}
 
+local function github_label(annotation)
+    local origin = annotation.origin
+    if not origin or origin.provider ~= "github" then
+        return ""
+    end
+    local marker = "[GH]"
+    if origin.resolved then
+        marker = "[GH✓]"
+    elseif origin.outdated or origin.anchor == "approximate" then
+        marker = "[GH~]"
+    end
+    if origin.is_reply then
+        marker = marker .. " reply"
+    end
+    local suffix = not origin.is_reply
+            and origin.reply_count
+            and origin.reply_count > 0
+            and string.format(" (+%d replies)", origin.reply_count)
+        or ""
+    return string.format("%s @%s%s ", marker, origin.author, suffix)
+end
+
 local function display(annotation)
     local range = annotation.start_line == annotation.end_line and tostring(annotation.start_line)
         or string.format("%d–%d", annotation.start_line, annotation.end_line)
     local text = annotation.text:gsub("\n", " ")
-    return string.format("%s:%s — %s", annotation.file, range, text)
+    return string.format("%s%s:%s — %s", github_label(annotation), annotation.file, range, text)
 end
 
 local function ordinal(annotation)
-    return table.concat({ annotation.file, annotation.text, table.concat(annotation.snippet, "\n") }, " ")
+    return table.concat(
+        { github_label(annotation), annotation.file, annotation.text, table.concat(annotation.snippet, "\n") },
+        " "
+    )
 end
 
 local function without_id(annotations, id)
@@ -98,5 +123,6 @@ end
 M._display = display
 M._ordinal = ordinal
 M._without_id = without_id
+M._github_label = github_label
 
 return M

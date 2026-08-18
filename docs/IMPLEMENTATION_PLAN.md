@@ -471,7 +471,12 @@ Validate the completed initial feature set as both a checkout and a flake input.
 - Keep Markdown export backward compatible.
 - Produce a strict pending-review JSON payload for ordinary right-side diff
   lines and multiline ranges.
-- Import inline comments and replies with idempotent GitHub provenance.
+- Import unresolved review-thread roots by default, with optional resolved
+  threads and separate replies, using idempotent GitHub provenance.
+- Mark exact, approximate/outdated, and resolved imports in signs and Telescope;
+  preserve author, thread ID, reply count, and thread state.
+- Resolve imported threads through an explicit GitHub mutation and update local
+  state only after remote success.
 - Approximate left-side deletion comments at the nearest surviving hunk line;
   report and skip ambiguous or entirely deleted targets.
 - Resolve pull requests and fetch data asynchronously through GitHub CLI.

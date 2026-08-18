@@ -84,18 +84,14 @@ T.test("model migrates v1 stores and round-trips GitHub provenance", function()
     T.eq(nil, legacy[1].origin)
 
     local annotation = T.annotation({
-        origin = {
-            provider = "github",
-            repository = "owner/repo",
+        origin = T.github_origin({
             pull_number = 12,
-            comment_id = 34,
-            url = "https://github.com/owner/repo/pull/12#discussion_r34",
-            author = "reviewer",
+            comment_id = "9223372036854775807",
+            url = "https://github.com/owner/repo/pull/12#discussion_r9223372036854775807",
             anchor = "approximate",
-            original_path = "lua/example.lua",
-            original_line = 4,
             original_side = "LEFT",
-        },
+            outdated = true,
+        }),
     })
     local encoded = T.truthy(model.encode({ annotation }))
     T.eq(2, vim.json.decode(encoded).version)
@@ -237,6 +233,12 @@ T.test("bulk store additions are idempotent and validate before saving", functio
     T.eq(nil, failed)
     T.match("positive integer", err)
     T.eq(nil, store.get("never-added"))
+
+    local imported = T.truthy(store.add(T.annotation({ id = "github-thread", origin = T.github_origin() })))
+    local resolved, changed = store.mark_github_thread_resolved("PRRT_thread")
+    T.truthy(resolved)
+    T.eq(1, #changed)
+    T.eq(true, imported.origin.resolved)
 end)
 
 T.test("GitHub diff mapping exports strict right-side review payloads", function()
@@ -345,7 +347,94 @@ T.test("GitHub import maps exact, reply, file, and deleted-line comments", funct
     T.eq("Deleted", report.records[3].text)
 end)
 
-T.test("GitHub CLI adapter resolves PRs and flattens paginated comments asynchronously", function()
+T.test("GitHub thread import defaults to unresolved roots and supports all replies", function()
+    local hunk = table.concat({
+        "@@ -1,4 +1,4 @@",
+        " one",
+        "-old",
+        "+new",
+        " three",
+        " four",
+    }, "\n")
+    local parsed = diff.parse(table.concat({
+        "diff --git a/foo.lua b/foo.lua",
+        "--- a/foo.lua",
+        "+++ b/foo.lua",
+        hunk,
+        "",
+    }, "\n"))
+    local function node(id, body, author)
+        return {
+            id = "PRRC_" .. id,
+            fullDatabaseId = id,
+            body = body,
+            url = "https://github.com/owner/repo/pull/7#discussion_r" .. id,
+            diffHunk = hunk,
+            author = { login = author },
+        }
+    end
+    local threads = {
+        {
+            id = "PRRT_open",
+            isResolved = false,
+            isOutdated = false,
+            path = "foo.lua",
+            line = 3,
+            diffSide = "RIGHT",
+            subjectType = "LINE",
+            comments = { nodes = { node("101", "Root", "alice"), node("102", "Reply", "bob") } },
+        },
+        {
+            id = "PRRT_resolved",
+            isResolved = true,
+            isOutdated = false,
+            path = "foo.lua",
+            line = 4,
+            diffSide = "RIGHT",
+            subjectType = "LINE",
+            comments = { nodes = { node("103", "Resolved", "carol") } },
+        },
+        {
+            id = "PRRT_outdated",
+            isResolved = false,
+            isOutdated = true,
+            path = "foo.lua",
+            line = vim.NIL,
+            originalLine = 3,
+            diffSide = "RIGHT",
+            subjectType = "LINE",
+            comments = { nodes = { node("104", "Outdated", "dave") } },
+        },
+    }
+    local options = {
+        repository = "owner/repo",
+        hostname = "github.com",
+        pull_number = 7,
+        branch = "review",
+        diff = parsed,
+        read_file = function()
+            return { "one", "new", "three", "four" }
+        end,
+    }
+    local defaults = github_import.transform_threads(threads, options)
+    T.eq(2, #defaults.records)
+    T.eq(1, defaults.filtered)
+    T.eq(2, defaults.threads)
+    T.eq("Root", defaults.records[1].text)
+    T.eq(1, defaults.records[1].origin.reply_count)
+    T.eq(false, defaults.records[1].origin.is_reply)
+    T.eq(true, defaults.records[2].origin.outdated)
+
+    options.include_resolved = true
+    options.include_replies = true
+    local everything = github_import.transform_threads(threads, options)
+    T.eq(4, #everything.records)
+    T.eq(0, everything.filtered)
+    T.eq(true, everything.records[2].origin.is_reply)
+    T.eq(true, everything.records[3].origin.resolved)
+end)
+
+T.test("GitHub CLI adapter resolves PRs, fetches threads, and resolves a thread asynchronously", function()
     local original_system = vim.system
     local original_executable = vim.fn.executable
     local commands = {}
@@ -355,7 +444,56 @@ T.test("GitHub CLI adapter resolves PRs and flattens paginated comments asynchro
             url = "https://github.example/owner/repo/pull/7",
             headRefOid = "abc123",
         }),
-        vim.json.encode({ { { id = 1 } }, { { id = 2 } } }),
+        vim.json.encode({
+            {
+                data = {
+                    repository = {
+                        pullRequest = {
+                            reviewThreads = {
+                                nodes = {
+                                    {
+                                        id = "PRRT_1",
+                                        comments = {
+                                            totalCount = 2,
+                                            nodes = { { id = "PRRC_1" } },
+                                            pageInfo = { hasNextPage = true, endCursor = "comments-next" },
+                                        },
+                                    },
+                                },
+                                pageInfo = { hasNextPage = true, endCursor = "next" },
+                            },
+                        },
+                    },
+                },
+            },
+            {
+                data = {
+                    repository = {
+                        pullRequest = {
+                            reviewThreads = {
+                                nodes = { { id = "PRRT_2" } },
+                                pageInfo = { hasNextPage = false, endCursor = vim.NIL },
+                            },
+                        },
+                    },
+                },
+            },
+        }),
+        vim.json.encode({
+            {
+                data = {
+                    node = {
+                        comments = {
+                            nodes = { { id = "PRRC_2" } },
+                            pageInfo = { hasNextPage = false, endCursor = vim.NIL },
+                        },
+                    },
+                },
+            },
+        }),
+        vim.json.encode({
+            data = { resolveReviewThread = { thread = { id = "PRRT_1", isResolved = true } } },
+        }),
     }
     vim.fn.executable = function(command)
         return command == "gh" and 1 or original_executable(command)
@@ -382,23 +520,43 @@ T.test("GitHub CLI adapter resolves PRs and flattens paginated comments asynchro
     T.eq("abc123", resolved.head_oid)
     T.eq({ "gh", "pr", "view", "7", "--json", "number,url,headRefOid" }, commands[1])
 
-    local comments
-    github.fetch_comments("/repo", resolved, function(result)
-        comments = result
+    local threads
+    github.fetch_threads("/repo", resolved, function(result)
+        threads = result
     end)
     T.truthy(vim.wait(200, function()
-        return comments ~= nil
+        return threads ~= nil
+    end))
+    T.eq(
+        { "PRRT_1", "PRRT_2" },
+        vim.tbl_map(function(thread)
+            return thread.id
+        end, threads)
+    )
+    T.eq("--hostname", commands[2][#commands[2] - 1])
+    T.eq("github.example", commands[2][#commands[2]])
+    T.eq({ "PRRC_1", "PRRC_2" }, {
+        threads[1].comments.nodes[1].id,
+        threads[1].comments.nodes[2].id,
+    })
+    T.eq("--hostname", commands[3][#commands[3] - 1])
+    T.eq("github.example", commands[3][#commands[3]])
+
+    local thread
+    github.resolve_thread("/repo", {
+        thread_id = "PRRT_1",
+        hostname = "github.example",
+    }, function(result)
+        thread = result
+    end)
+    T.truthy(vim.wait(200, function()
+        return thread ~= nil
     end))
     vim.system = original_system
     vim.fn.executable = original_executable
-    T.eq(
-        { 1, 2 },
-        vim.tbl_map(function(comment)
-            return comment.id
-        end, comments)
-    )
-    T.eq("--hostname", commands[2][6])
-    T.eq("github.example", commands[2][7])
+    T.eq("PRRT_1", thread.id)
+    T.eq("--hostname", commands[4][#commands[4] - 1])
+    T.eq("github.example", commands[4][#commands[4]])
 end)
 
 T.test("malformed stores become read-only and are never overwritten", function()
@@ -560,6 +718,33 @@ T.test("Telescope entries expose display, search, and preview coordinates", func
     T.truthy(entry.ordinal:find("lua/example.lua", 1, true))
     T.truthy(entry.ordinal:find("First line", 1, true))
     T.truthy(entry.ordinal:find("4: target", 1, true))
+
+    local imported = T.annotation({
+        text = "Imported thread",
+        origin = T.github_origin({ outdated = true }),
+    })
+    local imported_entry = picker.make_entry("/project", imported)
+    T.eq("[GH~] @reviewer (+2 replies) lua/example.lua:4 — Imported thread", imported_entry.display)
+    T.eq(
+        "[GH] reply @reviewer ",
+        picker._github_label(T.annotation({
+            origin = T.github_origin({ is_reply = true }),
+        }))
+    )
+    T.eq(
+        "[GH✓] @reviewer (+2 replies) ",
+        picker._github_label(T.annotation({
+            origin = T.github_origin({ resolved = true }),
+        }))
+    )
+
+    local bufnr = vim.api.nvim_create_buf(false, true)
+    vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, { "one", "two", "three", "four" })
+    T.truthy(signs.place(imported, bufnr))
+    local mark = vim.api.nvim_buf_get_extmark_by_id(bufnr, signs.namespace, imported._extmark_id, { details = true })
+    T.eq("G", vim.trim(mark[3].sign_text))
+    T.eq("VrvGitHubApproximate", mark[3].sign_hl_group)
+    vim.api.nvim_buf_delete(bufnr, { force = true })
 end)
 
 T.test("annotation editor supports write, repeated write, edit, drift, delete, and cancel", function()
@@ -751,6 +936,9 @@ T.test("commands, mappings, setup, and Telescope UI wiring are idempotent", func
     T.truthy(vim.fn.maparg(" ra", "x") ~= "")
     T.truthy(vim.tbl_contains(vim.fn.getcompletion("Vrv export g", "cmdline"), "github"))
     T.truthy(vim.tbl_contains(vim.fn.getcompletion("Vrv import g", "cmdline"), "github"))
+    T.truthy(vim.tbl_contains(vim.fn.getcompletion("Vrv import github --", "cmdline"), "--all"))
+    T.truthy(vim.tbl_contains(vim.fn.getcompletion("Vrv import github --", "cmdline"), "--replies"))
+    T.truthy(vim.tbl_contains(vim.fn.getcompletion("Vrv resolve g", "cmdline"), "github"))
 
     local before = #vim.api.nvim_get_autocmds({ group = "VrvLifecycle" })
     T.eq(vrv, vrv.setup())

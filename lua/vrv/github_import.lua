@@ -18,6 +18,10 @@ local function positive_integer(number)
     return type(number) == "number" and number >= 1 and number % 1 == 0
 end
 
+local function valid_identifier(identifier)
+    return positive_integer(identifier) or type(identifier) == "string" and identifier ~= ""
+end
+
 local function copy_coordinates(comment, parent)
     local effective = vim.deepcopy(comment)
     for _, field in ipairs({
@@ -161,7 +165,7 @@ function M.transform(comments, opts)
         if body == "" then
             mapping_error = mapping_error or "comment body is empty"
         end
-        if not positive_integer(value(comment.id)) then
+        if not valid_identifier(value(comment.id)) then
             mapping_error = mapping_error or "comment ID is missing or invalid"
         end
 
@@ -175,6 +179,7 @@ function M.transform(comments, opts)
             local captured = context.capture_lines(lines, start_line, end_line, 3)
             local identity = string.format("github:%s:%s", opts.repository, tostring(comment.id))
             local user = type(comment.user) == "table" and comment.user or {}
+            local thread = type(comment._thread) == "table" and comment._thread or {}
             records[#records + 1] = {
                 id = vim.fn.sha256(identity):sub(1, 24),
                 branch = opts.branch,
@@ -187,16 +192,25 @@ function M.transform(comments, opts)
                 origin = {
                     provider = "github",
                     repository = opts.repository,
+                    hostname = opts.hostname,
                     pull_number = opts.pull_number,
                     comment_id = comment.id,
-                    url = value(comment.html_url)
-                        or value(comment.url)
-                        or string.format("https://github.com/%s/pull/%d", opts.repository, opts.pull_number),
+                    url = value(comment.html_url) or value(comment.url) or string.format(
+                        "https://%s/%s/pull/%d",
+                        opts.hostname or "github.com",
+                        opts.repository,
+                        opts.pull_number
+                    ),
                     author = value(user.login) or "unknown",
                     anchor = anchor,
                     original_path = comment_path,
                     original_line = line,
                     original_side = side,
+                    thread_id = thread.id,
+                    resolved = thread.resolved,
+                    outdated = thread.outdated,
+                    is_reply = thread.is_reply,
+                    reply_count = thread.reply_count,
                 },
             }
             report[anchor] = report[anchor] + 1
@@ -204,6 +218,59 @@ function M.transform(comments, opts)
     end
 
     report.records = records
+    return report
+end
+
+function M.transform_threads(threads, opts)
+    local comments = {}
+    local filtered = 0
+    local truncated = 0
+    local selected_threads = 0
+
+    for _, thread in ipairs(threads) do
+        if thread.isResolved and not opts.include_resolved then
+            filtered = filtered + 1
+        else
+            selected_threads = selected_threads + 1
+            local connection = type(thread.comments) == "table" and thread.comments or {}
+            local nodes = type(connection.nodes) == "table" and connection.nodes or {}
+            if connection.pageInfo and connection.pageInfo.hasNextPage then
+                truncated = truncated + 1
+            end
+            local limit = opts.include_replies and #nodes or math.min(#nodes, 1)
+            local comment_count = type(connection.totalCount) == "number" and connection.totalCount or #nodes
+            for index = 1, limit do
+                local node = nodes[index]
+                comments[#comments + 1] = {
+                    id = value(node.fullDatabaseId) or value(node.id),
+                    path = thread.path,
+                    line = thread.line,
+                    side = thread.diffSide,
+                    start_line = thread.startLine,
+                    start_side = thread.startDiffSide,
+                    original_line = thread.originalLine,
+                    original_start_line = thread.originalStartLine,
+                    body = node.body,
+                    html_url = node.url,
+                    user = node.author,
+                    diff_hunk = node.diffHunk,
+                    subject_type = thread.subjectType == "FILE" and "file" or "line",
+                    _thread = {
+                        id = thread.id,
+                        resolved = thread.isResolved == true,
+                        outdated = thread.isOutdated == true,
+                        is_reply = index > 1,
+                        reply_count = math.max(0, comment_count - 1),
+                    },
+                }
+            end
+        end
+    end
+
+    local report = M.transform(comments, opts)
+    report.filtered = filtered
+    report.truncated = truncated
+    report.threads = selected_threads
     return report
 end
 

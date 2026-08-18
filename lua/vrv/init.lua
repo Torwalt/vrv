@@ -303,7 +303,8 @@ function M.export(opts)
     end
 end
 
-function M.import_github(selector)
+function M.import_github(selector, import_options)
+    import_options = import_options or {}
     local context = action_context()
     if not context or not start_github() then
         return
@@ -312,7 +313,7 @@ function M.import_github(selector)
     resolve_pull_request(context, selector, function(pull_request)
         local pending = 2
         local raw_diff
-        local comments
+        local threads
         local failed = false
 
         local function fail(err)
@@ -335,11 +336,14 @@ function M.import_github(selector)
                 fail("project or branch changed while the GitHub import was running; run the import again")
                 return
             end
-            local report = require("vrv.github_import").transform(comments, {
+            local report = require("vrv.github_import").transform_threads(threads, {
                 repository = pull_request.repository,
+                hostname = pull_request.hostname,
                 pull_number = pull_request.number,
                 branch = context.branch,
                 diff = parsed,
+                include_resolved = import_options.include_resolved,
+                include_replies = import_options.include_replies,
                 read_file = function(path)
                     return require("vrv.git").file_at(context.root, pull_request.head_oid, path)
                 end,
@@ -361,13 +365,23 @@ function M.import_github(selector)
                 end
             end
             local summary = string.format(
-                "vrv: imported %d GitHub comments: %d exact, %d approximated, %d skipped, %d already present",
+                "vrv: imported %d annotations from %d GitHub threads: "
+                    .. "%d exact, %d approximated, %d skipped, %d resolved filtered, %d already present",
                 #result.added,
+                report.threads,
                 added_exact,
                 added_approximate,
                 #report.skipped,
+                report.filtered,
                 #result.skipped
             )
+            if report.truncated > 0 and import_options.include_replies then
+                summary = summary
+                    .. string.format(
+                        "\n%d thread(s) had more than 100 replies; only the first page was imported",
+                        report.truncated
+                    )
+            end
             if #report.skipped > 0 then
                 local details = {}
                 for index = 1, math.min(#report.skipped, 3) do
@@ -392,23 +406,110 @@ function M.import_github(selector)
             raw_diff = output
             complete_one()
         end)
-        require("vrv.github").fetch_comments(context.root, pull_request, function(output, err)
+        require("vrv.github").fetch_threads(context.root, pull_request, function(output, err)
             if not output then
                 fail(err)
                 return
             end
-            comments = output
+            threads = output
             complete_one()
         end)
     end)
 end
 
 function M.import_review(opts)
-    if not opts or opts.fargs[2] ~= "github" or opts.fargs[4] then
-        notify_error("usage: :Vrv import github [PR]")
+    if not opts or opts.fargs[2] ~= "github" then
+        notify_error("usage: :Vrv import github [PR] [--all] [--replies]")
         return
     end
-    M.import_github(opts.fargs[3])
+    local selector
+    local import_options = { include_resolved = false, include_replies = false }
+    for index = 3, #opts.fargs do
+        local argument = opts.fargs[index]
+        if argument == "--all" then
+            import_options.include_resolved = true
+        elseif argument == "--replies" then
+            import_options.include_replies = true
+        elseif not selector and argument:sub(1, 2) ~= "--" then
+            selector = argument
+        else
+            notify_error("usage: :Vrv import github [PR] [--all] [--replies]")
+            return
+        end
+    end
+    M.import_github(selector, import_options)
+end
+
+local function resolve_github_annotation(annotation, context)
+    local origin = annotation.origin
+    if not origin or origin.provider ~= "github" or not origin.thread_id then
+        notify_error("annotation is not associated with a GitHub review thread")
+        return
+    end
+    if origin.resolved then
+        notify_error("GitHub review thread is already resolved")
+        return
+    end
+    if not start_github() then
+        return
+    end
+
+    vim.notify("vrv: resolving GitHub review thread", vim.log.levels.INFO)
+    require("vrv.github").resolve_thread(context.root, origin, function(_, err)
+        if err then
+            finish_github()
+            notify_error(err)
+            return
+        end
+        if require("vrv.store").root() ~= context.root then
+            finish_github()
+            notify_error("thread resolved on GitHub, but the active project changed; reload the original project")
+            return
+        end
+        local ok, result = require("vrv.store").mark_github_thread_resolved(origin.thread_id)
+        finish_github()
+        if not ok then
+            notify_error("thread resolved on GitHub, but local state could not be updated: " .. tostring(result))
+            return
+        end
+        require("vrv.signs").render_all(context.root, context.branch)
+        vim.notify("vrv: GitHub review thread resolved", vim.log.levels.INFO)
+    end)
+end
+
+function M.resolve_review(opts)
+    if not opts or opts.fargs[2] ~= "github" or opts.fargs[3] then
+        notify_error("usage: :Vrv resolve github")
+        return
+    end
+    local context = action_context()
+    if not context then
+        return
+    end
+    local candidates = {}
+    local seen_threads = {}
+    for _, annotation in ipairs(annotations_at_cursor(context)) do
+        local origin = annotation.origin
+        if
+            origin
+            and origin.provider == "github"
+            and origin.thread_id
+            and not origin.resolved
+            and not seen_threads[origin.thread_id]
+        then
+            seen_threads[origin.thread_id] = true
+            candidates[#candidates + 1] = annotation
+        end
+    end
+    if #candidates == 0 then
+        notify_error("no unresolved imported GitHub thread at cursor")
+    elseif #candidates == 1 then
+        resolve_github_annotation(candidates[1], context)
+    else
+        open_picker(candidates, "Resolve GitHub review thread", function(annotation)
+            resolve_github_annotation(annotation, context)
+        end, context)
+    end
 end
 
 function M.browse()
@@ -518,6 +619,7 @@ local subcommands = {
     clear = M.clear,
     export = M.export,
     import = M.import_review,
+    resolve = M.resolve_review,
     next = M.next,
     prev = M.previous,
     reload = M.reload,
@@ -527,7 +629,7 @@ local function register_interface()
     vim.api.nvim_create_user_command("Vrv", function(opts)
         local action = subcommands[opts.fargs[1]]
         if not action then
-            notify_error("usage: :Vrv <add|delete|edit|browse|clear|export|import|next|prev|reload>")
+            notify_error("usage: :Vrv <add|delete|edit|browse|clear|export|import|resolve|next|prev|reload>")
             return
         end
         action(opts)
@@ -539,6 +641,8 @@ local function register_interface()
             if command_line:match("^%s*Vrv%s+export%s+") then
                 choices = { "markdown", "github" }
             elseif command_line:match("^%s*Vrv%s+import%s+") then
+                choices = { "github", "--all", "--replies" }
+            elseif command_line:match("^%s*Vrv%s+resolve%s+") then
                 choices = { "github" }
             end
             return vim.tbl_filter(function(name)

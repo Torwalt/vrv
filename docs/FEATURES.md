@@ -55,11 +55,12 @@ Required fields:
 - Plain multiline annotation text.
 - Captured source snippet with numbered lines.
 
-There is deliberately no annotation `type`, resolved state, symbol context,
-commit SHA, diff/hunk information, or source fingerprint. Locally created
-annotations store no GitHub fields. Imported review comments may carry an
-optional `origin` object containing GitHub identity, attribution, URL, and
-whether their local anchor is exact or approximate.
+There is deliberately no annotation `type`, local resolved state, symbol
+context, commit SHA, diff/hunk information, or source fingerprint. Locally
+created annotations store no GitHub fields. Imported review comments may carry
+an optional `origin` object containing GitHub identity, hostname, thread ID,
+attribution, URL, resolved/outdated/reply state, reply count, and whether their
+local anchor is exact or approximate.
 
 The JSON document has a schema version so unsupported data is detected cleanly.
 Derived UI state such as Telescope selection, open buffer IDs, and extmarks must
@@ -122,7 +123,9 @@ Add behavior:
 ## 4. Source display and position tracking
 
 - Show a single, clearly visible sign at each annotation's starting line.
-- Use one fixed icon and highlight because annotations have no type.
+- Use a fixed local icon and a distinct `G` sign for GitHub imports. Imported
+  exact, approximate/outdated, and resolved annotations have distinct
+  highlights.
 - Use extmarks to follow line insertions and deletions while a buffer is open.
 - Synchronize moved extmark positions into JSON before export and when safely
   persisting editor changes.
@@ -261,9 +264,17 @@ The GitHub transformation:
 - Clearly reject or report annotations that cannot be mapped to an ordinary line
   in the pull-request diff rather than posting them at a guessed location.
 - Copy a pending-review JSON body that can be passed directly to `gh api`.
-- Import every inline review comment and reply from a selected pull request.
+- Import unresolved review-thread root comments from a selected pull request by
+  default, including unresolved outdated threads.
+- Optionally include resolved threads with `--all` and separate reply
+  annotations with `--replies`.
 - Persist optional GitHub provenance for idempotence and to distinguish exact
-  from approximate anchors.
+  from approximate anchors, thread resolution, outdated state, replies, and
+  authorship.
+- Mark GitHub imports in Telescope as `[GH]`, `[GH~]`, or `[GH✓]` and include
+  root reply counts.
+- Resolve a selected imported thread through an explicit GitHub mutation and
+  update every local annotation sharing its thread ID only after success.
 
 Local annotations cannot target deleted lines. When importing a left-side
 deletion comment, use the nearest following surviving line in the comment hunk,
@@ -296,7 +307,8 @@ Equivalent commands should exist for scripting and discoverability:
 - `:Vrv export`
 - `:Vrv export markdown`
 - `:Vrv export github [PR]`
-- `:Vrv import github [PR]`
+- `:Vrv import github [PR] [--all] [--replies]`
+- `:Vrv resolve github`
 - `:Vrv next`
 - `:Vrv prev`
 - `:Vrv reload`

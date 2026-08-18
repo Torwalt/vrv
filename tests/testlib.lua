@@ -114,6 +114,31 @@ function M.annotation(overrides)
     return annotation
 end
 
+function M.github_origin(overrides)
+    local origin = {
+        provider = "github",
+        repository = "owner/repo",
+        hostname = "github.com",
+        pull_number = 7,
+        comment_id = "123456789012345678",
+        url = "https://github.com/owner/repo/pull/7#discussion_r123",
+        author = "reviewer",
+        anchor = "exact",
+        original_path = "lua/example.lua",
+        original_line = 4,
+        original_side = "RIGHT",
+        thread_id = "PRRT_thread",
+        resolved = false,
+        outdated = false,
+        is_reply = false,
+        reply_count = 2,
+    }
+    for key, value in pairs(overrides or {}) do
+        origin[key] = value
+    end
+    return origin
+end
+
 function M.finish()
     pcall(vim.cmd, "silent! %bwipeout!")
     for _, path in ipairs(M.temporary_paths) do

@@ -237,6 +237,35 @@ function M.delete_branch(branch)
     return true, deleted
 end
 
+function M.mark_github_thread_resolved(thread_id)
+    local changed = {}
+    for _, annotation in ipairs(state.annotations) do
+        if
+            annotation.origin
+            and annotation.origin.provider == "github"
+            and annotation.origin.thread_id == thread_id
+            and annotation.origin.resolved ~= true
+        then
+            changed[#changed + 1] = { annotation = annotation, previous = annotation.origin.resolved }
+            annotation.origin.resolved = true
+        end
+    end
+    if #changed == 0 then
+        return false, "no unresolved imported annotations for this GitHub thread"
+    end
+
+    local ok, err = M.save()
+    if not ok then
+        for _, item in ipairs(changed) do
+            item.annotation.origin.resolved = item.previous
+        end
+        return false, err
+    end
+    return true, vim.tbl_map(function(item)
+        return item.annotation
+    end, changed)
+end
+
 function M._reset()
     state = { root = nil, annotations = {}, writable = true }
 end

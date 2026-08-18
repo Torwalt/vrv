@@ -6,6 +6,10 @@ local function is_positive_integer(value)
     return type(value) == "number" and value >= 1 and value % 1 == 0
 end
 
+local function is_identifier(value)
+    return is_positive_integer(value) or type(value) == "string" and value ~= ""
+end
+
 local function validate_origin(origin)
     if origin == nil then
         return true
@@ -22,8 +26,8 @@ local function validate_origin(origin)
     if not is_positive_integer(origin.pull_number) then
         return false, "annotation.origin.pull_number must be a positive integer"
     end
-    if not is_positive_integer(origin.comment_id) then
-        return false, "annotation.origin.comment_id must be a positive integer"
+    if not is_identifier(origin.comment_id) then
+        return false, "annotation.origin.comment_id must be a non-empty identifier"
     end
     if type(origin.url) ~= "string" or origin.url == "" then
         return false, "annotation.origin.url must be a non-empty string"
@@ -42,6 +46,27 @@ local function validate_origin(origin)
     end
     if origin.original_side ~= nil and origin.original_side ~= "LEFT" and origin.original_side ~= "RIGHT" then
         return false, "annotation.origin.original_side must be LEFT or RIGHT"
+    end
+    if origin.hostname ~= nil and (type(origin.hostname) ~= "string" or origin.hostname == "") then
+        return false, "annotation.origin.hostname must be a non-empty string"
+    end
+    if origin.thread_id ~= nil and (type(origin.thread_id) ~= "string" or origin.thread_id == "") then
+        return false, "annotation.origin.thread_id must be a non-empty string"
+    end
+    if origin.resolved ~= nil and type(origin.resolved) ~= "boolean" then
+        return false, "annotation.origin.resolved must be a boolean"
+    end
+    if origin.outdated ~= nil and type(origin.outdated) ~= "boolean" then
+        return false, "annotation.origin.outdated must be a boolean"
+    end
+    if origin.is_reply ~= nil and type(origin.is_reply) ~= "boolean" then
+        return false, "annotation.origin.is_reply must be a boolean"
+    end
+    if
+        origin.reply_count ~= nil
+        and (type(origin.reply_count) ~= "number" or origin.reply_count < 0 or origin.reply_count % 1 ~= 0)
+    then
+        return false, "annotation.origin.reply_count must be a non-negative integer"
     end
     return true
 end

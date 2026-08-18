@@ -7,6 +7,9 @@ M.namespace = vim.api.nvim_create_namespace("vrv_annotations")
 
 function M.setup()
     vim.api.nvim_set_hl(0, "VrvAnnotation", { link = "DiagnosticInfo", default = true })
+    vim.api.nvim_set_hl(0, "VrvGitHubAnnotation", { link = "DiagnosticHint", default = true })
+    vim.api.nvim_set_hl(0, "VrvGitHubApproximate", { link = "DiagnosticWarn", default = true })
+    vim.api.nvim_set_hl(0, "VrvGitHubResolved", { link = "Comment", default = true })
 end
 
 function M.remove(annotation)
@@ -28,9 +31,21 @@ function M.place(annotation, bufnr)
         return false
     end
 
+    local origin = annotation.origin
+    local github = origin and origin.provider == "github"
+    local highlight = "VrvAnnotation"
+    if github then
+        if origin.resolved then
+            highlight = "VrvGitHubResolved"
+        elseif origin.outdated or origin.anchor == "approximate" then
+            highlight = "VrvGitHubApproximate"
+        else
+            highlight = "VrvGitHubAnnotation"
+        end
+    end
     local ok, extmark = pcall(vim.api.nvim_buf_set_extmark, bufnr, M.namespace, annotation.start_line - 1, -1, {
-        sign_text = "●",
-        sign_hl_group = "VrvAnnotation",
+        sign_text = github and "G" or "●",
+        sign_hl_group = highlight,
         priority = 10,
     })
     if not ok then

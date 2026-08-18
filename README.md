@@ -8,8 +8,9 @@ and close it with `:wq`. Annotations are stored as branch-scoped JSON. When the
 review is ready, `<leader>rE` copies a compact Markdown review—with file paths,
 line numbers, and source context—to the system clipboard.
 
-There are no annotation types, modal forms, resolved states, or configuration
-framework. The plugin is intentionally built around one workflow.
+There are no local annotation types, modal forms, or configuration framework.
+Imported GitHub annotations retain their thread state, but the plugin remains
+intentionally built around one workflow.
 
 ## What it does
 
@@ -26,8 +27,8 @@ framework. The plugin is intentionally built around one workflow.
 - Navigates between annotations across files.
 - Exports deterministic Markdown to the `+` clipboard register.
 - Exports a pending-review JSON payload ready for `gh api`.
-- Imports existing GitHub review comments, including best-effort anchors for
-  deleted lines.
+- Imports unresolved GitHub review threads by default, including best-effort
+  anchors for deleted lines, with optional resolved threads and replies.
 - Clears all annotations on the current branch without affecting other branches.
 
 ## Requirements
@@ -118,6 +119,8 @@ required.
 7. Use `<leader>rf` to search, jump to, edit, or delete annotations.
 8. Press `<leader>rE` to copy the current branch's Markdown review.
 9. Optionally use `:Vrv export github` to create GitHub review JSON.
+10. Use `:Vrv import github` to bring unresolved GitHub review threads into the
+    same browser.
 
 Annotations are isolated by symbolic Git branch. Switching branches updates the
 visible signs and changes what appears in Telescope and exports. Detached HEAD
@@ -141,10 +144,18 @@ The mappings are fixed in the current version.
 `:Vrv reload` reloads JSON from disk and redraws signs.
 
 `:Vrv export markdown` is the explicit form of `:Vrv export`. Use
-`:Vrv export github [PR]` to copy a GitHub review payload and
-`:Vrv import github [PR]` to import existing inline review comments. `PR` may
-be a pull-request number or URL; when omitted, GitHub CLI resolves the pull
-request for the current branch.
+`:Vrv export github [PR]` to copy a GitHub review payload. GitHub import is
+thread-oriented:
+
+- `:Vrv import github [PR]` imports unresolved root comments.
+- Add `--replies` to import each reply as a separate annotation.
+- Add `--all` to include resolved threads. The flags can be combined.
+- `:Vrv resolve github` resolves an imported thread under the cursor on GitHub
+  and marks every local annotation from that thread resolved.
+
+`PR` may be a pull-request number or URL; when omitted, GitHub CLI resolves the
+pull request for the current branch. Resolving is an explicit GitHub write;
+import and export do not change the pull request.
 
 The Telescope browser adds these actions:
 
@@ -229,11 +240,19 @@ JSON omits `event`, so posting it creates a pending review:
 gh api -X POST repos/OWNER/REPO/pulls/NUMBER/reviews --input review.json
 ```
 
-Import fetches every inline review comment and reply. Current right-side
-comments retain their exact line or range. File comments use line 1. Deleted
-left-side comments use the nearest following surviving line in their hunk, then
-the nearest preceding line; ambiguous anchors and entirely deleted files are
-reported and skipped. Repeating an import does not duplicate comments.
+Import fetches review threads through GitHub's GraphQL API. It imports only
+unresolved root comments by default; unresolved outdated threads are retained.
+`--all` also includes resolved threads, while `--replies` imports replies as
+separate annotations. Current right-side comments retain their exact line or
+range. File comments use line 1. Deleted left-side comments use the nearest
+following surviving line in their hunk, then the nearest preceding line;
+ambiguous anchors and entirely deleted files are reported and skipped.
+Repeating an import does not duplicate comments.
+
+Imported annotations use a `G` sign. Telescope prefixes them with `[GH]` for an
+exact open thread, `[GH~]` for an outdated or approximately anchored thread,
+and `[GH✓]` for a resolved thread. Root comments show the author and reply
+count; separately imported replies are marked `reply`.
 
 ## Developing and testing locally
 
@@ -283,7 +302,8 @@ configuration.
 
 ## Deliberate limitations
 
-- No annotation types or resolved state.
+- No annotation types or resolved state for locally authored annotations;
+  imported GitHub threads retain their remote state.
 - No stale-location detection or cross-session re-anchoring.
 - Locally authored annotations cannot target deleted diff lines; imported
   deletion comments use approximate surviving-line anchors.
