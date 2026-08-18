@@ -25,18 +25,22 @@ framework. The plugin is intentionally built around one workflow.
 - Searches the current branch's annotations through Telescope.
 - Navigates between annotations across files.
 - Exports deterministic Markdown to the `+` clipboard register.
+- Exports a pending-review JSON payload ready for `gh api`.
+- Imports existing GitHub review comments, including best-effort anchors for
+  deleted lines.
 - Clears all annotations on the current branch without affecting other branches.
 
 ## Requirements
 
 - Neovim 0.11.7 or newer.
 - Git.
+- [GitHub CLI](https://cli.github.com/) for GitHub import and export.
 - [telescope.nvim](https://github.com/nvim-telescope/telescope.nvim).
 - [plenary.nvim](https://github.com/nvim-lua/plenary.nvim).
 - A working Neovim clipboard provider for Markdown export. Check it with
   `:checkhealth provider`.
 
-The Nix package supplies Git, Telescope, and Plenary.
+The Nix package supplies Git, GitHub CLI, Telescope, and Plenary.
 
 ## Installation
 
@@ -113,6 +117,7 @@ required.
 6. Repeat as needed.
 7. Use `<leader>rf` to search, jump to, edit, or delete annotations.
 8. Press `<leader>rE` to copy the current branch's Markdown review.
+9. Optionally use `:Vrv export github` to create GitHub review JSON.
 
 Annotations are isolated by symbolic Git branch. Switching branches updates the
 visible signs and changes what appears in Telescope and exports. Detached HEAD
@@ -134,6 +139,12 @@ The mappings are fixed in the current version.
 | `[r` | Normal | `:Vrv prev` | Jump to the previous annotation, wrapping across files |
 
 `:Vrv reload` reloads JSON from disk and redraws signs.
+
+`:Vrv export markdown` is the explicit form of `:Vrv export`. Use
+`:Vrv export github [PR]` to copy a GitHub review payload and
+`:Vrv import github [PR]` to import existing inline review comments. `PR` may
+be a pull-request number or URL; when omitted, GitHub CLI resolves the pull
+request for the current branch.
 
 The Telescope browser adds these actions:
 
@@ -168,8 +179,9 @@ JSON is the source of truth:
 ```
 
 The file contains annotations for all branches and is rewritten atomically after
-successful changes. Markdown exports are transformations of this JSON and are
-never read back as state.
+successful changes. Markdown and GitHub exports are transformations of this
+JSON and are never read back as state. Stores written by the current version use
+schema version 2; version 1 stores are read and migrated on their next save.
 
 `vrv.nvim` does not modify `.gitignore`. Add the store path there yourself if
 you do not want Git to track it.
@@ -205,6 +217,23 @@ The annotation text.
 
 Files, lines, and annotations have deterministic ordering. Exporting an empty
 branch reports that there are no annotations and leaves the clipboard unchanged.
+
+## GitHub review integration
+
+GitHub export requires local `HEAD` to match the pull request's head commit. It
+maps annotations only to right-side lines in one pull-request diff hunk and
+refuses the complete export if any annotation is not commentable. The copied
+JSON omits `event`, so posting it creates a pending review:
+
+```sh
+gh api -X POST repos/OWNER/REPO/pulls/NUMBER/reviews --input review.json
+```
+
+Import fetches every inline review comment and reply. Current right-side
+comments retain their exact line or range. File comments use line 1. Deleted
+left-side comments use the nearest following surviving line in their hunk, then
+the nearest preceding line; ambiguous anchors and entirely deleted files are
+reported and skipped. Repeating an import does not duplicate comments.
 
 ## Developing and testing locally
 
@@ -256,12 +285,11 @@ configuration.
 
 - No annotation types or resolved state.
 - No stale-location detection or cross-session re-anchoring.
-- No comments on deleted diff lines.
+- Locally authored annotations cannot target deleted diff lines; imported
+  deletion comments use approximate surviving-line anchors.
 - No concurrent-writer protection.
 - No migration from meow.review.nvim.
 - No user configuration API or alternate picker backends.
-- GitHub CLI review generation is deferred; the current exporter produces
-  Markdown only.
 
 See [docs/FEATURES.md](docs/FEATURES.md) for the full behavior contract and
 [docs/PREVIOUS.md](docs/PREVIOUS.md) for the original plugin inventory that

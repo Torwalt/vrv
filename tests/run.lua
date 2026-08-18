@@ -3,7 +3,11 @@ local tests_root = vim.fn.fnamemodify(script, ":p:h")
 local T = dofile(tests_root .. "/testlib.lua")
 local context = require("vrv.context")
 local exporter = require("vrv.export")
+local diff = require("vrv.diff")
 local git = require("vrv.git")
+local github = require("vrv.github")
+local github_export = require("vrv.github_export")
+local github_import = require("vrv.github_import")
 local model = require("vrv.model")
 local navigation = require("vrv.navigation")
 local picker = require("vrv.picker")
@@ -59,7 +63,7 @@ T.test("model rejects malformed, unsupported, and duplicate records", function()
     T.eq(nil, decoded)
     T.match("valid JSON", json_error)
 
-    local unsupported, version_error = model.decode('{"version":2,"annotations":[]}')
+    local unsupported, version_error = model.decode('{"version":3,"annotations":[]}')
     T.eq(nil, unsupported)
     T.match("unsupported store version", version_error)
 
@@ -70,6 +74,33 @@ T.test("model rejects malformed, unsupported, and duplicate records", function()
     local result, duplicate_error = model.decode(duplicate)
     T.eq(nil, result)
     T.match("duplicate annotation id", duplicate_error)
+end)
+
+T.test("model migrates v1 stores and round-trips GitHub provenance", function()
+    local legacy = T.truthy(model.decode(vim.json.encode({
+        version = 1,
+        annotations = { T.annotation() },
+    })))
+    T.eq(nil, legacy[1].origin)
+
+    local annotation = T.annotation({
+        origin = {
+            provider = "github",
+            repository = "owner/repo",
+            pull_number = 12,
+            comment_id = 34,
+            url = "https://github.com/owner/repo/pull/12#discussion_r34",
+            author = "reviewer",
+            anchor = "approximate",
+            original_path = "lua/example.lua",
+            original_line = 4,
+            original_side = "LEFT",
+        },
+    })
+    local encoded = T.truthy(model.encode({ annotation }))
+    T.eq(2, vim.json.decode(encoded).version)
+    local decoded = T.truthy(model.decode(encoded))
+    T.eq(annotation.origin, decoded[1].origin)
 end)
 
 T.test("context capture uses live text, boundaries, and visual line ranges", function()
@@ -189,6 +220,185 @@ T.test("store persists branches atomically and leaves gitignore untouched", func
     local saved = store.save()
     T.falsy(saved)
     T.eq(previous, T.read(store.path(root)))
+end)
+
+T.test("bulk store additions are idempotent and validate before saving", function()
+    local root = T.repo()
+    T.truthy(store.load(root))
+    local first = T.annotation({ id = "bulk-one" })
+    local duplicate = T.annotation({ id = "bulk-one", text = "duplicate" })
+    local result = T.truthy(store.add_many({ first, duplicate }))
+    T.eq(1, #result.added)
+    T.eq(1, #result.skipped)
+    T.eq("Review this.", store.get("bulk-one").text)
+
+    local invalid = T.annotation({ id = "invalid", start_line = 0 })
+    local failed, err = store.add_many({ T.annotation({ id = "never-added" }), invalid })
+    T.eq(nil, failed)
+    T.match("positive integer", err)
+    T.eq(nil, store.get("never-added"))
+end)
+
+T.test("GitHub diff mapping exports strict right-side review payloads", function()
+    local raw = table.concat({
+        "diff --git a/foo.lua b/foo.lua",
+        "--- a/foo.lua",
+        "+++ b/foo.lua",
+        "@@ -1,4 +1,4 @@",
+        " one",
+        "-old",
+        "+new",
+        " three",
+        " four",
+        "",
+    }, "\n")
+    local parsed = diff.parse(raw)
+    local payload = T.truthy(github_export.build({
+        T.annotation({ id = "one", file = "foo.lua", start_line = 2, end_line = 2, text = "single" }),
+        T.annotation({ id = "two", file = "foo.lua", start_line = 2, end_line = 3, text = "range" }),
+    }, { head_oid = "abc123" }, parsed))
+    T.eq("abc123", payload.commit_id)
+    T.eq({ path = "foo.lua", line = 2, side = "RIGHT", body = "single" }, payload.comments[1])
+    T.eq({
+        path = "foo.lua",
+        start_line = 2,
+        start_side = "RIGHT",
+        line = 3,
+        side = "RIGHT",
+        body = "range",
+    }, payload.comments[2])
+
+    local rejected, errors = github_export.build({
+        T.annotation({ file = "foo.lua", start_line = 20, end_line = 20 }),
+    }, { head_oid = "abc123" }, parsed)
+    T.eq(nil, rejected)
+    T.match("not a commentable range", errors[1])
+end)
+
+T.test("GitHub import maps exact, reply, file, and deleted-line comments", function()
+    local hunk = table.concat({
+        "@@ -1,4 +1,4 @@",
+        " one",
+        "-old",
+        "+new",
+        " three",
+        " four",
+    }, "\n")
+    local parsed = diff.parse(table.concat({
+        "diff --git a/foo.lua b/foo.lua",
+        "--- a/foo.lua",
+        "+++ b/foo.lua",
+        hunk,
+        "",
+    }, "\n"))
+    local function comment(overrides)
+        local value = {
+            id = 1,
+            path = "foo.lua",
+            line = 3,
+            side = "RIGHT",
+            body = "Comment",
+            html_url = "https://github.com/owner/repo/pull/7#discussion_r1",
+            user = { login = "reviewer" },
+            diff_hunk = hunk,
+        }
+        for key, item in pairs(overrides or {}) do
+            value[key] = item
+        end
+        return value
+    end
+    local reply = comment({ id = 2, in_reply_to_id = 1, body = "Reply" })
+    reply.line = vim.NIL
+    reply.side = vim.NIL
+    local file_comment = comment({ id = 4, subject_type = "file", body = "Whole file" })
+    file_comment.line = vim.NIL
+    file_comment.side = vim.NIL
+    file_comment.original_line = vim.NIL
+    local comments = {
+        comment(),
+        reply,
+        comment({ id = 3, line = 2, side = "LEFT", body = "Deleted" }),
+        file_comment,
+        comment({ id = 5, path = "gone.lua", line = 1, side = "LEFT", body = "Gone" }),
+    }
+    local report = github_import.transform(comments, {
+        repository = "owner/repo",
+        pull_number = 7,
+        branch = "review",
+        diff = parsed,
+        read_file = function(path)
+            if path == "foo.lua" then
+                return { "one", "new", "three", "four" }
+            end
+            return nil, "missing"
+        end,
+    })
+    T.eq(4, #report.records)
+    T.eq(2, report.exact)
+    T.eq(2, report.approximate)
+    T.eq(1, #report.skipped)
+    T.eq(3, report.records[1].start_line)
+    T.eq(3, report.records[2].start_line, "reply must inherit its parent location")
+    T.eq(2, report.records[3].start_line, "deleted line must prefer the following surviving line")
+    T.eq("approximate", report.records[3].origin.anchor)
+    T.eq(1, report.records[4].start_line)
+    T.eq("Deleted", report.records[3].text)
+end)
+
+T.test("GitHub CLI adapter resolves PRs and flattens paginated comments asynchronously", function()
+    local original_system = vim.system
+    local original_executable = vim.fn.executable
+    local commands = {}
+    local responses = {
+        vim.json.encode({
+            number = 7,
+            url = "https://github.example/owner/repo/pull/7",
+            headRefOid = "abc123",
+        }),
+        vim.json.encode({ { { id = 1 } }, { { id = 2 } } }),
+    }
+    vim.fn.executable = function(command)
+        return command == "gh" and 1 or original_executable(command)
+    end
+    vim.system = function(command, options, callback)
+        if command[1] ~= "gh" or not callback then
+            return original_system(command, options, callback)
+        end
+        commands[#commands + 1] = command
+        local response = table.remove(responses, 1)
+        callback({ code = 0, stdout = response, stderr = "" })
+        return {}
+    end
+
+    local resolved
+    github.resolve("/repo", "7", function(pull_request)
+        resolved = pull_request
+    end)
+    T.truthy(vim.wait(200, function()
+        return resolved ~= nil
+    end))
+    T.eq("owner/repo", resolved.repository)
+    T.eq("github.example", resolved.hostname)
+    T.eq("abc123", resolved.head_oid)
+    T.eq({ "gh", "pr", "view", "7", "--json", "number,url,headRefOid" }, commands[1])
+
+    local comments
+    github.fetch_comments("/repo", resolved, function(result)
+        comments = result
+    end)
+    T.truthy(vim.wait(200, function()
+        return comments ~= nil
+    end))
+    vim.system = original_system
+    vim.fn.executable = original_executable
+    T.eq(
+        { 1, 2 },
+        vim.tbl_map(function(comment)
+            return comment.id
+        end, comments)
+    )
+    T.eq("--hostname", commands[2][6])
+    T.eq("github.example", commands[2][7])
 end)
 
 T.test("malformed stores become read-only and are never overwritten", function()
@@ -539,6 +749,8 @@ T.test("commands, mappings, setup, and Telescope UI wiring are idempotent", func
         T.truthy(vim.fn.maparg(mapping, "n") ~= "", "missing mapping " .. mapping)
     end
     T.truthy(vim.fn.maparg(" ra", "x") ~= "")
+    T.truthy(vim.tbl_contains(vim.fn.getcompletion("Vrv export g", "cmdline"), "github"))
+    T.truthy(vim.tbl_contains(vim.fn.getcompletion("Vrv import g", "cmdline"), "github"))
 
     local before = #vim.api.nvim_get_autocmds({ group = "VrvLifecycle" })
     T.eq(vrv, vrv.setup())

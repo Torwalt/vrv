@@ -1,9 +1,49 @@
-local M = { VERSION = 1 }
+local M = { VERSION = 2 }
 
 local next_id = 0
 
 local function is_positive_integer(value)
     return type(value) == "number" and value >= 1 and value % 1 == 0
+end
+
+local function validate_origin(origin)
+    if origin == nil then
+        return true
+    end
+    if type(origin) ~= "table" then
+        return false, "annotation.origin must be an object"
+    end
+    if origin.provider ~= "github" then
+        return false, "annotation.origin.provider must be github"
+    end
+    if type(origin.repository) ~= "string" or origin.repository == "" then
+        return false, "annotation.origin.repository must be a non-empty string"
+    end
+    if not is_positive_integer(origin.pull_number) then
+        return false, "annotation.origin.pull_number must be a positive integer"
+    end
+    if not is_positive_integer(origin.comment_id) then
+        return false, "annotation.origin.comment_id must be a positive integer"
+    end
+    if type(origin.url) ~= "string" or origin.url == "" then
+        return false, "annotation.origin.url must be a non-empty string"
+    end
+    if type(origin.author) ~= "string" or origin.author == "" then
+        return false, "annotation.origin.author must be a non-empty string"
+    end
+    if origin.anchor ~= "exact" and origin.anchor ~= "approximate" then
+        return false, "annotation.origin.anchor must be exact or approximate"
+    end
+    if origin.original_path ~= nil and (type(origin.original_path) ~= "string" or origin.original_path == "") then
+        return false, "annotation.origin.original_path must be a non-empty string"
+    end
+    if origin.original_line ~= nil and not is_positive_integer(origin.original_line) then
+        return false, "annotation.origin.original_line must be a positive integer"
+    end
+    if origin.original_side ~= nil and origin.original_side ~= "LEFT" and origin.original_side ~= "RIGHT" then
+        return false, "annotation.origin.original_side must be LEFT or RIGHT"
+    end
+    return true
 end
 
 local function validate_annotation(annotation)
@@ -39,6 +79,10 @@ local function validate_annotation(annotation)
     if type(annotation.text) ~= "string" or vim.trim(annotation.text) == "" then
         return false, "annotation.text must be non-empty"
     end
+    local origin_ok, origin_err = validate_origin(annotation.origin)
+    if not origin_ok then
+        return false, origin_err
+    end
     return true
 end
 
@@ -66,7 +110,7 @@ function M.new(fields)
 end
 
 function M.serializable(annotation)
-    return {
+    local durable = {
         id = annotation.id,
         branch = annotation.branch,
         file = annotation.file,
@@ -76,6 +120,10 @@ function M.serializable(annotation)
         snippet = vim.deepcopy(annotation.snippet),
         text = annotation.text,
     }
+    if annotation.origin then
+        durable.origin = vim.deepcopy(annotation.origin)
+    end
+    return durable
 end
 
 function M.encode(annotations)
@@ -103,7 +151,7 @@ function M.decode(content)
     if not ok or type(document) ~= "table" then
         return nil, "store is not valid JSON"
     end
-    if document.version ~= M.VERSION then
+    if document.version ~= 1 and document.version ~= M.VERSION then
         return nil, "unsupported store version: " .. tostring(document.version)
     end
     if type(document.annotations) ~= "table" or not vim.islist(document.annotations) then

@@ -31,7 +31,10 @@
             telescope-nvim
             plenary-nvim
           ];
-          runtimeDeps = [ pkgs.git ];
+          runtimeDeps = [
+            pkgs.gh
+            pkgs.git
+          ];
           meta = {
             description = "Branch-scoped code review annotations for Neovim";
             platforms = pkgs.lib.platforms.all;
@@ -70,6 +73,7 @@
           name = "vrv-nvim";
           runtimeInputs = [
             devNeovim
+            pkgs.gh
             pkgs.git
           ];
           text = ''
@@ -154,6 +158,7 @@
             packages = [
               devNeovim
               devLauncher
+              pkgs.gh
               pkgs.git
               pkgs.ripgrep
               pkgs.stylua

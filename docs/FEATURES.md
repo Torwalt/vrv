@@ -56,9 +56,10 @@ Required fields:
 - Captured source snippet with numbered lines.
 
 There is deliberately no annotation `type`, resolved state, symbol context,
-commit SHA, diff/hunk information, source fingerprint, or other GitHub-specific
-metadata. The branch name is the only Git-related value stored because it is
-required for branch-scoped views and exports.
+commit SHA, diff/hunk information, or source fingerprint. Locally created
+annotations store no GitHub fields. Imported review comments may carry an
+optional `origin` object containing GitHub identity, attribution, URL, and
+whether their local anchor is exact or approximate.
 
 The JSON document has a schema version so unsupported data is detected cleanly.
 Derived UI state such as Telescope selection, open buffer IDs, and extmarks must
@@ -244,12 +245,9 @@ Export requirements:
 The Markdown formatter should be a pure function from the branch-filtered JSON
 model to a string and should have snapshot tests.
 
-## 9. Future GitHub CLI review transformation
+## 9. GitHub CLI review integration
 
-This is explicitly deferred until after the core plugin works. The initial
-schema will not capture extra data for it.
-
-The future transformation will:
+The GitHub transformation:
 
 - Read the same JSON annotations as Markdown export.
 - Select annotations for the current branch/pull request.
@@ -262,10 +260,16 @@ The future transformation will:
   them.
 - Clearly reject or report annotations that cannot be mapped to an ordinary line
   in the pull-request diff rather than posting them at a guessed location.
+- Copy a pending-review JSON body that can be passed directly to `gh api`.
+- Import every inline review comment and reply from a selected pull request.
+- Persist optional GitHub provenance for idempotence and to distinguish exact
+  from approximate anchors.
 
-Commenting on deleted lines is intentionally unsupported. We accept that the
-future transformation may be unable to export some annotations because no
-commit, diff side, or hunk metadata is stored.
+Local annotations cannot target deleted lines. When importing a left-side
+deletion comment, use the nearest following surviving line in the comment hunk,
+then the nearest preceding line. Skip and report comments whose file was
+entirely deleted or whose surviving context cannot be re-anchored
+unambiguously.
 
 ## 10. Commands and keybindings
 
@@ -290,6 +294,9 @@ Equivalent commands should exist for scripting and discoverability:
 - `:Vrv browse`
 - `:Vrv clear`
 - `:Vrv export`
+- `:Vrv export markdown`
+- `:Vrv export github [PR]`
+- `:Vrv import github [PR]`
 - `:Vrv next`
 - `:Vrv prev`
 - `:Vrv reload`

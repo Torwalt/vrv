@@ -1,6 +1,6 @@
 local M = {}
 
-local function run(args, cwd)
+local function run(args, cwd, raw)
     if vim.fn.executable("git") == 0 then
         return nil, "git executable not found"
     end
@@ -14,7 +14,8 @@ local function run(args, cwd)
     if result.code ~= 0 then
         return nil, vim.trim(result.stderr or "git command failed")
     end
-    return vim.trim(result.stdout or "")
+    local output = result.stdout or ""
+    return raw and output or vim.trim(output)
 end
 
 function M.root(path)
@@ -36,6 +37,22 @@ function M.branch(root)
         return nil, err and err ~= "" and err or "detached HEAD is not supported"
     end
     return branch
+end
+
+function M.head(root)
+    return run({ "rev-parse", "HEAD" }, root)
+end
+
+function M.file_at(root, revision, path)
+    local content, err = run({ "show", revision .. ":" .. path }, root, true)
+    if not content then
+        return nil, err
+    end
+    local lines = vim.split(content, "\n", { plain = true })
+    if lines[#lines] == "" then
+        table.remove(lines)
+    end
+    return lines
 end
 
 function M.relative_file(root, bufnr)

@@ -125,6 +125,9 @@ function M.add(fields)
     if not annotation then
         return nil, model_err
     end
+    if M.get(annotation.id) then
+        return nil, "duplicate annotation id: " .. annotation.id
+    end
 
     state.annotations[#state.annotations + 1] = annotation
     local ok, err = M.save()
@@ -133,6 +136,43 @@ function M.add(fields)
         return nil, err
     end
     return annotation
+end
+
+function M.add_many(records)
+    local known = {}
+    for _, annotation in ipairs(state.annotations) do
+        known[annotation.id] = true
+    end
+
+    local added = {}
+    local skipped = {}
+    for _, fields in ipairs(records) do
+        local annotation, model_err = model.new(fields)
+        if not annotation then
+            return nil, model_err
+        end
+        if known[annotation.id] then
+            skipped[#skipped + 1] = annotation
+        else
+            known[annotation.id] = true
+            added[#added + 1] = annotation
+        end
+    end
+
+    if #added == 0 then
+        return { added = added, skipped = skipped }
+    end
+
+    local previous_count = #state.annotations
+    vim.list_extend(state.annotations, added)
+    local ok, err = M.save()
+    if not ok then
+        for index = #state.annotations, previous_count + 1, -1 do
+            table.remove(state.annotations, index)
+        end
+        return nil, err
+    end
+    return { added = added, skipped = skipped }
 end
 
 function M.update(id, text)

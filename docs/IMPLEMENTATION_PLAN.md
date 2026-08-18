@@ -14,6 +14,8 @@ The shortest path to a useful version is:
 4. Minimal Markdown-to-clipboard export.
 5. Telescope browsing, searching, editing, and deletion.
 6. Navigation, branch-change behavior, and integration hardening.
+7. Final integration and downstream verification.
+8. GitHub review JSON export and comment import.
 
 The primary `<leader>ra` → annotate → `:wq` → `<leader>rE` workflow is complete
 after milestone 4. Telescope and secondary navigation follow once that vertical
@@ -28,6 +30,7 @@ slice works.
 - [x] Milestone 5 — Telescope browser (2026-08-10).
 - [x] Milestone 6 — Navigation, reload, and branch lifecycle (2026-08-10).
 - [x] Milestone 7 — Final integration and downstream verification (2026-08-10).
+- [x] Milestone 8 — GitHub review integration (2026-08-18).
 
 Milestone 1 passed the package build, local and all-supported-system evaluation,
 packaged and live-worktree smoke tests, overlay-based downstream test, formatting
@@ -48,8 +51,9 @@ picker stayed open after deleting the selected annotation.
 - Keep branch filtering inside the query/store boundary so signs, navigation,
   Telescope, and export cannot accidentally show another branch.
 - Keep formatting pure and testable without Telescope or editor windows.
-- Do not introduce configuration, compatibility layers, migration, stale
-  detection, multi-instance protection, or GitHub-specific metadata.
+- Do not introduce configuration, broad compatibility layers, stale detection,
+  or multi-instance protection. The GitHub milestone may add a narrow v1-to-v2
+  store migration and optional provenance for imported comments.
 - Make each milestone pass `nix flake check -L` before proceeding.
 
 ## Milestone 1 — Flake, dev shell, packaging, and smoke test
@@ -462,9 +466,14 @@ Validate the completed initial feature set as both a checkout and a flake input.
   internal development configuration.
 - No functionality listed as out of scope has been introduced.
 
-## Deferred work
+## Milestone 8 — GitHub review integration
 
-The GitHub CLI transformation begins only after the initial definition of done.
-It will use the existing branch, file, line/range, text, and snippet fields and
-will support only ordinary non-deleted diff lines. It does not affect the
-milestones above.
+- Keep Markdown export backward compatible.
+- Produce a strict pending-review JSON payload for ordinary right-side diff
+  lines and multiline ranges.
+- Import inline comments and replies with idempotent GitHub provenance.
+- Approximate left-side deletion comments at the nearest surviving hunk line;
+  report and skip ambiguous or entirely deleted targets.
+- Resolve pull requests and fetch data asynchronously through GitHub CLI.
+- Validate transformations with pure diff fixtures and run the complete flake
+  checks.
