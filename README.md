@@ -299,18 +299,3 @@ nix fmt
 
 `nix run .#nvim` uses the reproducible packaged Neovim rather than your personal
 configuration.
-
-## Deliberate limitations
-
-- No annotation types or resolved state for locally authored annotations;
-  imported GitHub threads retain their remote state.
-- No stale-location detection or cross-session re-anchoring.
-- Locally authored annotations cannot target deleted diff lines; imported
-  deletion comments use approximate surviving-line anchors.
-- No concurrent-writer protection.
-- No migration from meow.review.nvim.
-- No user configuration API or alternate picker backends.
-
-See [docs/FEATURES.md](docs/FEATURES.md) for the full behavior contract and
-[docs/PREVIOUS.md](docs/PREVIOUS.md) for the original plugin inventory that
-informed this rewrite.
