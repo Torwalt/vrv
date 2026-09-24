@@ -2,3 +2,4 @@
 /result
 /result-*
 /.cache/vrv/annotations.json
+.env
