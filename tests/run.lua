@@ -242,19 +242,21 @@ T.test("bulk store additions are idempotent and validate before saving", functio
 end)
 
 T.test("GitHub diff mapping exports strict right-side review payloads", function()
-    local raw = table.concat({
-        "diff --git a/foo.lua b/foo.lua",
-        "--- a/foo.lua",
-        "+++ b/foo.lua",
-        "@@ -1,4 +1,4 @@",
-        " one",
-        "-old",
-        "+new",
-        " three",
-        " four",
-        "",
-    }, "\n")
-    local parsed = diff.parse(raw)
+    local parsed = diff.from_files({
+        {
+            filename = "foo.lua",
+            status = "modified",
+            changes = 2,
+            patch = table.concat({
+                "@@ -1,4 +1,4 @@",
+                " one",
+                "-old",
+                "+new",
+                " three",
+                " four",
+            }, "\n"),
+        },
+    })
     local payload = T.truthy(github_export.build({
         T.annotation({ id = "one", file = "foo.lua", start_line = 2, end_line = 2, text = "single" }),
         T.annotation({ id = "two", file = "foo.lua", start_line = 2, end_line = 3, text = "range" }),
@@ -277,6 +279,34 @@ T.test("GitHub diff mapping exports strict right-side review payloads", function
     T.match("not a commentable range", errors[1])
 end)
 
+T.test("pull request file listings map renames and withheld patches", function()
+    local parsed = diff.from_files({
+        {
+            filename = "renamed.lua",
+            previous_filename = "old.lua",
+            status = "renamed",
+            changes = 1,
+            patch = "@@ -1 +1 @@\n-one\n+two",
+        },
+        { filename = "gone.lua", status = "removed", changes = 3, patch = "@@ -1 +0,0 @@\n-one" },
+        { filename = "huge.lua", status = "modified", changes = 40000 },
+        { filename = "moved.lua", previous_filename = "was.lua", status = "renamed", changes = 0 },
+    })
+
+    local file, resolved = diff.file(parsed, "old.lua")
+    T.truthy(file)
+    T.eq("renamed.lua", resolved, "an old path must resolve to its new path")
+    T.truthy(diff.right_range(parsed, "old.lua", 1, 1))
+    T.eq(nil, diff.file(parsed, "gone.lua"), "deleted files have no head-side path")
+
+    local mapped, err = diff.right_range(parsed, "huge.lua", 1, 1)
+    T.eq(nil, mapped)
+    T.match("too large", err)
+
+    local _, rename_err = diff.right_range(parsed, "moved.lua", 1, 1)
+    T.match("not a commentable range", rename_err, "an unchanged rename is not a withheld patch")
+end)
+
 T.test("GitHub import maps exact, reply, file, and deleted-line comments", function()
     local hunk = table.concat({
         "@@ -1,4 +1,4 @@",
@@ -286,13 +316,6 @@ T.test("GitHub import maps exact, reply, file, and deleted-line comments", funct
         " three",
         " four",
     }, "\n")
-    local parsed = diff.parse(table.concat({
-        "diff --git a/foo.lua b/foo.lua",
-        "--- a/foo.lua",
-        "+++ b/foo.lua",
-        hunk,
-        "",
-    }, "\n"))
     local function comment(overrides)
         local value = {
             id = 1,
@@ -323,11 +346,11 @@ T.test("GitHub import maps exact, reply, file, and deleted-line comments", funct
         file_comment,
         comment({ id = 5, path = "gone.lua", line = 1, side = "LEFT", body = "Gone" }),
     }
+    -- No diff: thread coordinates and the head-commit file are enough.
     local report = github_import.transform(comments, {
         repository = "owner/repo",
         pull_number = 7,
         branch = "review",
-        diff = parsed,
         read_file = function(path)
             if path == "foo.lua" then
                 return { "one", "new", "three", "four" }
@@ -336,6 +359,7 @@ T.test("GitHub import maps exact, reply, file, and deleted-line comments", funct
         end,
     })
     T.eq(4, #report.records)
+    T.eq(1, report.unreadable, "only the vanished path needs the changed-file listing")
     T.eq(2, report.exact)
     T.eq(2, report.approximate)
     T.eq(1, #report.skipped)
@@ -347,6 +371,49 @@ T.test("GitHub import maps exact, reply, file, and deleted-line comments", funct
     T.eq("Deleted", report.records[3].text)
 end)
 
+T.test("GitHub import follows renames only when the changed-file listing is supplied", function()
+    local comments = {
+        {
+            id = 11,
+            path = "old.lua",
+            line = 1,
+            side = "RIGHT",
+            body = "Renamed under the comment",
+            user = { login = "reviewer" },
+        },
+    }
+    local options = {
+        repository = "owner/repo",
+        pull_number = 7,
+        branch = "review",
+        read_file = function(path)
+            if path == "new.lua" then
+                return { "one" }
+            end
+            return nil, "missing"
+        end,
+    }
+
+    local without = github_import.transform(comments, options)
+    T.eq(0, #without.records)
+    T.eq(1, without.unreadable)
+
+    options.diff = diff.from_files({
+        {
+            filename = "new.lua",
+            previous_filename = "old.lua",
+            status = "renamed",
+            changes = 1,
+            patch = "@@ -1 +1 @@\n-zero\n+one",
+        },
+    })
+    local with = github_import.transform(comments, options)
+    T.eq(1, #with.records)
+    T.eq(0, with.unreadable)
+    T.eq("new.lua", with.records[1].file)
+    T.eq("old.lua", with.records[1].origin.original_path)
+end)
+
 T.test("GitHub thread import defaults to unresolved roots and supports all replies", function()
     local hunk = table.concat({
         "@@ -1,4 +1,4 @@",
@@ -356,13 +423,9 @@ T.test("GitHub thread import defaults to unresolved roots and supports all repli
         " three",
         " four",
     }, "\n")
-    local parsed = diff.parse(table.concat({
-        "diff --git a/foo.lua b/foo.lua",
-        "--- a/foo.lua",
-        "+++ b/foo.lua",
-        hunk,
-        "",
-    }, "\n"))
+    local parsed = diff.from_files({
+        { filename = "foo.lua", status = "modified", changes = 2, patch = hunk },
+    })
     local function node(id, body, author)
         return {
             id = "PRRC_" .. id,
@@ -494,6 +557,10 @@ T.test("GitHub CLI adapter resolves PRs, fetches threads, and resolves a thread 
         vim.json.encode({
             data = { resolveReviewThread = { thread = { id = "PRRT_1", isResolved = true } } },
         }),
+        vim.json.encode({
+            { { filename = "first.lua", status = "modified", changes = 1, patch = "@@ -1 +1 @@\n-a\n+b" } },
+            { { filename = "second.lua", status = "added", changes = 1, patch = "@@ -0,0 +1 @@\n+c" } },
+        }),
     }
     vim.fn.executable = function(command)
         return command == "gh" and 1 or original_executable(command)
@@ -552,11 +619,35 @@ T.test("GitHub CLI adapter resolves PRs, fetches threads, and resolves a thread 
     T.truthy(vim.wait(200, function()
         return thread ~= nil
     end))
+
+    local files
+    github.fetch_files("/repo", resolved, function(result)
+        files = result
+    end)
+    T.truthy(vim.wait(200, function()
+        return files ~= nil
+    end))
     vim.system = original_system
     vim.fn.executable = original_executable
     T.eq("PRRT_1", thread.id)
     T.eq("--hostname", commands[4][#commands[4] - 1])
     T.eq("github.example", commands[4][#commands[4]])
+    T.eq({
+        "gh",
+        "api",
+        "--paginate",
+        "--slurp",
+        "repos/owner/repo/pulls/7/files?per_page=100",
+        "--hostname",
+        "github.example",
+    }, commands[5], "the whole-diff endpoint refuses diffs over 20000 lines")
+    T.eq(
+        { "first.lua", "second.lua" },
+        vim.tbl_map(function(file)
+            return file.filename
+        end, files),
+        "paginated file listings must be flattened"
+    )
 end)
 
 T.test("malformed stores become read-only and are never overwritten", function()

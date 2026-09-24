@@ -240,7 +240,16 @@ JSON omits `event`, so posting it creates a pending review:
 gh api -X POST repos/OWNER/REPO/pulls/NUMBER/reviews --input review.json
 ```
 
-Import fetches review threads through GitHub's GraphQL API. It imports only
+Export reads the pull request's changed files page by page rather than its
+complete diff, which GitHub refuses above 20000 lines or 300 files. GitHub
+withholds the patch of binary and very large files; annotations on those are
+reported as not commentable.
+
+Import fetches review threads through GitHub's GraphQL API and needs nothing
+else: each thread carries its own path, line, side, and diff hunk, and the
+surrounding context lines are read from the head commit with Git. The changed
+files are fetched only when a comment's path is absent from the head commit,
+to find out whether the pull request renamed it. It imports only
 unresolved root comments by default; unresolved outdated threads are retained.
 `--all` also includes resolved threads, while `--replies` imports replies as
 separate annotations. Current right-side comments retain their exact line or

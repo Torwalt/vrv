@@ -261,14 +261,14 @@ function M.export_github(selector)
 
     vim.notify("vrv: resolving GitHub pull request", vim.log.levels.INFO)
     resolve_pull_request(context, selector, function(pull_request)
-        require("vrv.github").fetch_diff(context.root, pull_request, function(raw_diff, diff_err)
-            if not raw_diff then
+        require("vrv.github").fetch_files(context.root, pull_request, function(files, diff_err)
+            if not files then
                 finish_github()
                 notify_error(diff_err)
                 return
             end
             local encoded, errors =
-                require("vrv.github_export").encode(annotations, pull_request, require("vrv.diff").parse(raw_diff))
+                require("vrv.github_export").encode(annotations, pull_request, require("vrv.diff").from_files(files))
             if not encoded then
                 finish_github()
                 notify_error(github_error(errors))
@@ -311,9 +311,6 @@ function M.import_github(selector, import_options)
     end
     vim.notify("vrv: resolving GitHub pull request", vim.log.levels.INFO)
     resolve_pull_request(context, selector, function(pull_request)
-        local pending = 2
-        local raw_diff
-        local threads
         local failed = false
 
         local function fail(err)
@@ -325,29 +322,27 @@ function M.import_github(selector, import_options)
             notify_error(err)
         end
 
-        local function complete_one()
-            pending = pending - 1
-            if pending > 0 or failed then
-                return
-            end
-            local parsed = require("vrv.diff").parse(raw_diff)
-            local current_branch = require("vrv.git").branch(context.root)
-            if current_branch ~= context.branch or require("vrv.store").root() ~= context.root then
-                fail("project or branch changed while the GitHub import was running; run the import again")
-                return
-            end
-            local report = require("vrv.github_import").transform_threads(threads, {
+        local function transform(threads, parsed_diff)
+            return require("vrv.github_import").transform_threads(threads, {
                 repository = pull_request.repository,
                 hostname = pull_request.hostname,
                 pull_number = pull_request.number,
                 branch = context.branch,
-                diff = parsed,
+                diff = parsed_diff,
                 include_resolved = import_options.include_resolved,
                 include_replies = import_options.include_replies,
                 read_file = function(path)
                     return require("vrv.git").file_at(context.root, pull_request.head_oid, path)
                 end,
             })
+        end
+
+        local function store_report(report, note)
+            local current_branch = require("vrv.git").branch(context.root)
+            if current_branch ~= context.branch or require("vrv.store").root() ~= context.root then
+                fail("project or branch changed while the GitHub import was running; run the import again")
+                return
+            end
             local result, store_err = require("vrv.store").add_many(report.records)
             if not result then
                 fail(store_err)
@@ -395,24 +390,33 @@ function M.import_github(selector, import_options)
                 end
                 summary = summary .. "\nSkipped: " .. table.concat(details, "; ")
             end
-            vim.notify(summary, #report.skipped > 0 and vim.log.levels.WARN or vim.log.levels.INFO)
+            if note then
+                summary = summary .. "\n" .. note
+            end
+            vim.notify(summary, (#report.skipped > 0 or note) and vim.log.levels.WARN or vim.log.levels.INFO)
         end
 
-        require("vrv.github").fetch_diff(context.root, pull_request, function(output, err)
-            if not output then
+        require("vrv.github").fetch_threads(context.root, pull_request, function(threads, err)
+            if not threads then
                 fail(err)
                 return
             end
-            raw_diff = output
-            complete_one()
-        end)
-        require("vrv.github").fetch_threads(context.root, pull_request, function(output, err)
-            if not output then
-                fail(err)
+            local report = transform(threads)
+            if report.unreadable == 0 then
+                store_report(report)
                 return
             end
-            threads = output
-            complete_one()
+            -- Some comment paths are absent from the head commit. Only now is
+            -- the changed-file listing worth fetching: it says which of them
+            -- the pull request merely renamed.
+            require("vrv.github").fetch_files(context.root, pull_request, function(files, files_err)
+                if not files then
+                    -- The threads already mapped; renames stay unfollowed.
+                    store_report(report, "renamed files could not be followed: " .. tostring(files_err))
+                    return
+                end
+                store_report(transform(threads, require("vrv.diff").from_files(files)))
+            end)
         end)
     end)
 end

@@ -78,7 +78,7 @@ function M.transform(comments, opts)
     end
 
     local records = {}
-    local report = { exact = 0, approximate = 0, skipped = {} }
+    local report = { exact = 0, approximate = 0, skipped = {}, unreadable = 0 }
     for _, original in ipairs(comments) do
         local comment = original
         local parent_id = value(comment.in_reply_to_id)
@@ -87,7 +87,9 @@ function M.transform(comments, opts)
         end
 
         local comment_path = value(comment.path)
-        local _, resolved_path = diff.file(opts.diff, comment_path or "")
+        -- Coordinates come from the thread itself, so the pull request diff is
+        -- only consulted to follow a file GitHub renamed under the comment.
+        local resolved_path = opts.diff and select(2, diff.file(opts.diff, comment_path or "")) or nil
         local path = resolved_path or comment_path
         local lines
         local read_err
@@ -104,6 +106,7 @@ function M.transform(comments, opts)
         local line = first(comment.line, comment.original_line)
         if not path or not lines or #lines == 0 then
             mapping_error = read_err or "file does not exist at the pull request head"
+            report.unreadable = report.unreadable + 1
         elseif positive_integer(value(comment.line)) and side == "RIGHT" then
             end_line = comment.line
             start_line = value(comment.start_side) == "RIGHT" and value(comment.start_line) or end_line

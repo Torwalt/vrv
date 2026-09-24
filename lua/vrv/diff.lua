@@ -1,30 +1,5 @@
 local M = {}
 
-local function unquote_path(path)
-    if path:sub(1, 1) == '"' and path:sub(-1) == '"' then
-        path = path:sub(2, -2)
-        path = path:gsub("\\([0-7][0-7][0-7])", function(octal)
-            return string.char(tonumber(octal, 8))
-        end)
-        local escapes = { a = "\a", b = "\b", f = "\f", n = "\n", r = "\r", t = "\t", v = "\v" }
-        path = path:gsub("\\(.)", function(escaped)
-            return escapes[escaped] or escaped
-        end)
-    end
-    return path
-end
-
-local function normalize_path(path, prefix)
-    path = unquote_path(path)
-    if path == "/dev/null" then
-        return nil
-    end
-    if path:sub(1, #prefix) == prefix then
-        return path:sub(#prefix + 1)
-    end
-    return path
-end
-
 local function new_hunk(header)
     local old_start, old_count, new_start, new_count = header:match("^@@ %-(%d+),?(%d*) %+(%d+),?(%d*) @@")
     if not old_start then
@@ -66,67 +41,58 @@ local function add_hunk_line(hunk, line, counters)
     hunk.lines[#hunk.lines + 1] = record
 end
 
-function M.parse_hunk(content)
+local function parse_hunks(content)
+    local hunks = {}
+    local headers = 0
     local hunk
     local counters
     for _, line in ipairs(vim.split(content or "", "\n", { plain = true })) do
         if line:match("^@@ ") then
+            headers = headers + 1
             hunk = new_hunk(line)
-            if not hunk then
-                return nil, "invalid diff hunk header"
-            end
-            counters = { old_line = hunk.old_start, new_line = hunk.new_start }
-        elseif hunk then
-            add_hunk_line(hunk, line, counters)
-        end
-    end
-    if not hunk then
-        return nil, "diff hunk is missing a header"
-    end
-    return hunk
-end
-
-function M.parse(content)
-    local result = { files = {}, old_paths = {} }
-    local current
-    local hunk
-    local counters
-
-    local function register_file()
-        if not current or not current.path then
-            return
-        end
-        result.files[current.path] = current
-        if current.old_path then
-            result.old_paths[current.old_path] = current.path
-        end
-    end
-
-    for _, line in ipairs(vim.split(content or "", "\n", { plain = true })) do
-        if line:match("^diff %-%-git ") then
-            register_file()
-            current = { hunks = {} }
-            hunk = nil
-            counters = nil
-        elseif current and line:match("^rename from ") then
-            current.old_path = unquote_path(line:sub(13))
-        elseif current and line:match("^rename to ") then
-            current.path = unquote_path(line:sub(11))
-        elseif current and line:match("^%-%-%- ") then
-            current.old_path = normalize_path(line:sub(5), "a/")
-        elseif current and line:match("^%+%+%+ ") then
-            current.path = normalize_path(line:sub(5), "b/")
-        elseif current and line:match("^@@ ") then
-            hunk = new_hunk(line)
+            counters = hunk and { old_line = hunk.old_start, new_line = hunk.new_start } or nil
             if hunk then
-                current.hunks[#current.hunks + 1] = hunk
-                counters = { old_line = hunk.old_start, new_line = hunk.new_start }
+                hunks[#hunks + 1] = hunk
             end
         elseif hunk and counters then
             add_hunk_line(hunk, line, counters)
         end
     end
-    register_file()
+    return hunks, headers
+end
+
+function M.parse_hunk(content)
+    local hunks, headers = parse_hunks(content)
+    if #hunks == 0 then
+        return nil, headers > 0 and "invalid diff hunk header" or "diff hunk is missing a header"
+    end
+    return hunks[#hunks]
+end
+
+-- Builds the same lookup shape as a parsed unified diff from the entries of
+-- `repos/{repo}/pulls/{number}/files`. The whole-pull-request diff endpoint
+-- refuses anything over 20000 lines, the per-file listing never does.
+function M.from_files(files)
+    local result = { files = {}, old_paths = {} }
+    for _, file in ipairs(files or {}) do
+        local path = type(file.filename) == "string" and file.filename ~= "" and file.filename or nil
+        if path and file.status ~= "removed" then
+            local patch = type(file.patch) == "string" and file.patch or nil
+            local entry = {
+                path = path,
+                hunks = patch and parse_hunks(patch) or {},
+                -- GitHub drops `patch` for binary files and for diffs it
+                -- considers too large; an unchanged rename simply has none.
+                patch_omitted = patch == nil and (tonumber(file.changes) or 0) > 0,
+            }
+            local old_path = type(file.previous_filename) == "string" and file.previous_filename or nil
+            if old_path and old_path ~= "" and old_path ~= path then
+                entry.old_path = old_path
+                result.old_paths[old_path] = path
+            end
+            result.files[path] = entry
+        end
+    end
     return result
 end
 
@@ -159,6 +125,9 @@ function M.right_range(parsed, path, start_line, end_line)
         if right_record(hunk, start_line) and right_record(hunk, end_line) then
             return { file = file, path = resolved_path, hunk = hunk }
         end
+    end
+    if file.patch_omitted then
+        return nil, string.format("GitHub withheld the diff for %s; it is binary or too large to review", resolved_path)
     end
     return nil, string.format("%s:%d-%d is not a commentable range in one diff hunk", path, start_line, end_line)
 end

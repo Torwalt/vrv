@@ -129,17 +129,41 @@ function M.resolve(root, selector, callback)
     end)
 end
 
-function M.fetch_diff(root, pull_request, callback)
+-- The pull request diff endpoint answers 406 once the diff exceeds 20000
+-- lines, so the changed files are listed page by page instead. Each entry
+-- carries its own patch, which is all the annotation mapping needs.
+function M.fetch_files(root, pull_request, callback)
     local args = {
         "api",
-        string.format("repos/%s/pulls/%d", pull_request.repository, pull_request.number),
-        "-H",
-        "Accept: application/vnd.github.v3.diff",
+        "--paginate",
+        "--slurp",
+        -- Query parameters belong in the path; `-f`/`-F` would turn the
+        -- request into a POST.
+        string.format("repos/%s/pulls/%d/files?per_page=100", pull_request.repository, pull_request.number),
     }
     if pull_request.hostname and pull_request.hostname ~= "github.com" then
         vim.list_extend(args, { "--hostname", pull_request.hostname })
     end
-    run(root, args, callback)
+    run(root, args, function(output, err)
+        if not output then
+            callback(nil, err)
+            return
+        end
+        local pages, decode_err = decode_json(output)
+        if not pages then
+            callback(nil, decode_err)
+            return
+        end
+        local files = {}
+        for _, page in ipairs(type(pages) == "table" and pages or {}) do
+            if type(page) ~= "table" then
+                callback(nil, "GitHub returned an unexpected pull request file listing")
+                return
+            end
+            vim.list_extend(files, page)
+        end
+        callback(files)
+    end)
 end
 
 function M.fetch_threads(root, pull_request, callback)
