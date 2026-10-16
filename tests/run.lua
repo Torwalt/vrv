@@ -152,6 +152,14 @@ T.test("Git helpers support roots, unborn branches, slash names, and detached HE
     local branch, branch_error = git.branch(root)
     T.eq(nil, branch)
     T.truthy(branch_error ~= nil)
+
+    T.command({ "git", "switch", "main" }, root)
+    T.command({ "git", "switch", "--detach", "feature/review" }, root)
+    T.eq("feature/review", git.branch(root))
+    T.command({ "git", "commit", "--allow-empty", "-m", "past the branch tip" }, root)
+    T.eq("feature/review", git.branch(root))
+    T.command({ "git", "switch", "--detach", "HEAD~1" }, root)
+    T.eq(nil, git.branch(root))
 end)
 
 T.test("store persists branches atomically and leaves gitignore untouched", function()
@@ -1016,6 +1024,15 @@ T.test("branch switches, reload, and detached HEAD preserve branch isolation", f
     vim.fn.setreg = original_setreg
     T.eq(before, T.read(store.path(root)))
     T.eq(0, clipboard_calls)
+
+    T.command({ "git", "switch", "main" }, root)
+    vrv.refresh()
+    T.eq({}, vim.api.nvim_buf_get_extmarks(0, signs.namespace, 0, -1, {}))
+    T.command({ "git", "switch", "--detach", "other" }, root)
+    vrv.refresh()
+    marks = vim.api.nvim_buf_get_extmarks(0, signs.namespace, 0, -1, {})
+    T.eq(1, #marks)
+    T.eq(1, marks[1][2])
 end)
 
 T.test("commands, mappings, setup, and Telescope UI wiring are idempotent", function()

@@ -21,7 +21,7 @@ local function action_context(bufnr)
     local root = git.root(vim.api.nvim_buf_get_name(bufnr))
     local branch, branch_err = git.branch(root)
     if not branch then
-        notify_error(branch_err or "detached HEAD is not supported")
+        notify_error(branch_err or "detached HEAD was not checked out from a local branch")
         return nil
     end
 
@@ -563,7 +563,7 @@ function M.reload()
     local root = git.root(vim.api.nvim_buf_get_name(0))
     local branch, branch_err = git.branch(root)
     if not branch then
-        notify_error(branch_err or "detached HEAD is not supported")
+        notify_error(branch_err or "detached HEAD was not checked out from a local branch")
         return
     end
     local loaded, err = require("vrv.store").load(root)

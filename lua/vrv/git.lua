@@ -31,10 +31,34 @@ function M.root(path)
     return root and vim.fs.normalize(root) or vim.fs.normalize(vim.fn.getcwd())
 end
 
+-- Detached HEAD: the local branch named by the last checkout, as `git status` reports it.
+local function detached_branch(root)
+    local message = run({
+        "log",
+        "--walk-reflogs",
+        "--max-count=1",
+        "--grep-reflog=^checkout: moving from ",
+        "--format=%gs",
+        "HEAD",
+    }, root)
+    local name = message and message:match(" to (%S+)$")
+    if not name or not run({ "show-ref", "--verify", "--quiet", "refs/heads/" .. name }, root) then
+        return nil
+    end
+    return name
+end
+
 function M.branch(root)
     local branch, err = run({ "symbolic-ref", "--quiet", "--short", "HEAD" }, root)
-    if not branch or branch == "" then
-        return nil, err and err ~= "" and err or "detached HEAD is not supported"
+    if branch and branch ~= "" then
+        return branch
+    end
+    if err and err ~= "" then
+        return nil, err
+    end
+    branch = detached_branch(root)
+    if not branch then
+        return nil, "detached HEAD was not checked out from a local branch"
     end
     return branch
 end
